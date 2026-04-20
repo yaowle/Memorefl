@@ -56,13 +56,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         lifecycleScope.launch {
-            val savedTree = database.knowledgeDao().getTree("root_tree").firstOrNull()
-            val initialRoot = if (savedTree != null) {
-                savedTree.jsonContent.toNode()
-            } else {
+            // 获取所有方案
+            val allSchemes = database.knowledgeDao().getAllSchemes().firstOrNull() ?: emptyList()
+            
+            // 如果没有任何方案，创建一个默认方案
+            if (allSchemes.isEmpty()) {
                 val defaultRoot = KnowledgeNode(
                     id = "root",
-                    title = "所有知识",
+                    title = "默认方案",
                     children = listOf(
                         KnowledgeNode("1", "工作", weight = 3f, children = listOf(
                             KnowledgeNode("1-1", "会议"),
@@ -74,20 +75,34 @@ class MainActivity : ComponentActivity() {
                         ))
                     )
                 )
-                database.knowledgeDao().insertTree(KnowledgeTreeEntity(jsonContent = defaultRoot.toJson()))
-                defaultRoot
+                database.knowledgeDao().insertScheme(KnowledgeScheme("默认方案", defaultRoot.toJson()))
             }
 
             setContent {
                 KnowledgeAppTheme {
-                    KnowledgeApp(
-                        initialRoot = initialRoot,
-                        onTreeChanged = { newRoot ->
-                            lifecycleScope.launch {
-                                database.knowledgeDao().insertTree(KnowledgeTreeEntity(jsonContent = newRoot.toJson()))
+                    val schemes by database.knowledgeDao().getAllSchemes().collectAsState(initial = emptyList())
+                    
+                    if (schemes.isNotEmpty()) {
+                        KnowledgeApp(
+                            allSchemes = schemes,
+                            onSchemeChanged = { name, newRoot ->
+                                lifecycleScope.launch {
+                                    database.knowledgeDao().insertScheme(KnowledgeScheme(name, newRoot.toJson()))
+                                }
+                            },
+                            onDeleteScheme = { scheme ->
+                                lifecycleScope.launch {
+                                    database.knowledgeDao().deleteScheme(scheme)
+                                }
+                            },
+                            onNewScheme = { name ->
+                                lifecycleScope.launch {
+                                    val newNode = KnowledgeNode(id = UUID.randomUUID().toString(), title = name)
+                                    database.knowledgeDao().insertScheme(KnowledgeScheme(name, newNode.toJson()))
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -95,50 +110,54 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun KnowledgeApp(initialRoot: KnowledgeNode, onTreeChanged: (KnowledgeNode) -> Unit) {
-    var rootNode by remember { mutableStateOf(initialRoot) }
+fun KnowledgeApp(
+    allSchemes: List<KnowledgeScheme>,
+    onSchemeChanged: (String, KnowledgeNode) -> Unit,
+    onDeleteScheme: (KnowledgeScheme) -> Unit,
+    onNewScheme: (String) -> Unit
+) {
+    var currentSchemeName by remember { mutableStateOf(allSchemes.first().name) }
+    
+    // 确保当前方案存在，如果不存在（被删了）则切回第一个
+    val currentScheme = allSchemes.find { it.name == currentSchemeName } ?: allSchemes.first().also { currentSchemeName = it.name }
+    
+    var rootNode by remember(currentScheme.name) { mutableStateOf(currentScheme.jsonContent.toNode()) }
     var isEditMode by remember { mutableStateOf(false) }
     val navigationStack = remember { mutableStateListOf<KnowledgeNode>() }
     
-    LaunchedEffect(Unit) {
-        if (navigationStack.isEmpty()) {
-            val defaultNode = findDefaultNode(rootNode)
-            if (defaultNode != null && defaultNode != rootNode) {
-                navigationStack.add(rootNode)
-                navigationStack.add(defaultNode)
-            } else {
-                navigationStack.add(rootNode)
-            }
+    // 自动保存修改
+    LaunchedEffect(rootNode) {
+        if (rootNode.toJson() != currentScheme.jsonContent) {
+            onSchemeChanged(currentSchemeName, rootNode)
         }
     }
 
-    LaunchedEffect(rootNode) {
-        onTreeChanged(rootNode)
-        if (navigationStack.isNotEmpty()) {
-            val newStack = mutableListOf<KnowledgeNode>()
-            var current = rootNode
-            newStack.add(current)
-            for (i in 1 until navigationStack.size) {
-                val targetId = navigationStack[i].id
-                val found = current.children.find { it.id == targetId }
-                if (found != null) {
-                    newStack.add(found)
-                    current = found
-                } else break
-            }
-            navigationStack.clear()
-            navigationStack.addAll(newStack)
+    // 处理导航栈重置
+    LaunchedEffect(currentSchemeName) {
+        navigationStack.clear()
+        val node = currentScheme.jsonContent.toNode()
+        rootNode = node
+        val defaultNode = findDefaultNode(node)
+        if (defaultNode != null && defaultNode != node) {
+            navigationStack.add(node)
+            navigationStack.add(defaultNode)
+        } else {
+            navigationStack.add(node)
         }
     }
 
     if (isEditMode) {
         TreeEditor(
-            rootNode = rootNode,
-            onClose = { isEditMode = false },
+            currentSchemeName = currentSchemeName,
+            allSchemes = allSchemes,
+            onSchemeSwitch = { currentSchemeName = it },
+            onNewScheme = onNewScheme,
+            onDeleteScheme = onDeleteScheme,
             onSave = { 
-                rootNode = it
+                onSchemeChanged(currentSchemeName, it)
                 isEditMode = false
-            }
+            },
+            onClose = { isEditMode = false }
         )
     } else if (navigationStack.isNotEmpty()) {
         val currentNode = navigationStack.last()
@@ -271,14 +290,24 @@ fun EndPageContent(node: KnowledgeNode) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TreeEditor(
-    rootNode: KnowledgeNode,
-    onClose: () -> Unit,
-    onSave: (KnowledgeNode) -> Unit
+    currentSchemeName: String,
+    allSchemes: List<KnowledgeScheme>,
+    onSchemeSwitch: (String) -> Unit,
+    onNewScheme: (String) -> Unit,
+    onDeleteScheme: (KnowledgeScheme) -> Unit,
+    onSave: (KnowledgeNode) -> Unit,
+    onClose: () -> Unit
 ) {
-    var editingTree by remember { mutableStateOf(rootNode) }
+    val currentScheme = allSchemes.find { it.name == currentSchemeName } ?: allSchemes.first()
+    var editingTree by remember(currentSchemeName) { mutableStateOf(currentScheme.jsonContent.toNode()) }
     var showExitConfirm by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
+    var importText by remember { mutableStateOf("") }
+    
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = remember { context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager }
 
-    val hasChanges = editingTree != rootNode
+    val hasChanges = editingTree.toJson() != currentScheme.jsonContent
 
     if (showExitConfirm) {
         AlertDialog(
@@ -294,10 +323,40 @@ fun TreeEditor(
         )
     }
 
+    if (showImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportDialog = false },
+            title = { Text("导入方案 (JSON)") },
+            text = {
+                OutlinedTextField(
+                    value = importText,
+                    onValueChange = { importText = it },
+                    modifier = Modifier.fillMaxWidth().height(200.dp),
+                    placeholder = { Text("请在此粘贴 JSON 内容") },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    try {
+                        editingTree = importText.toNode()
+                        showImportDialog = false
+                        importText = ""
+                    } catch (e: Exception) {
+                        // 简单提示
+                    }
+                }) { Text("导入") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("编辑层级结构", fontSize = 18.sp) },
+                title = { Text("编辑方案", fontSize = 18.sp) },
                 navigationIcon = {
                     IconButton(onClick = {
                         if (hasChanges) showExitConfirm = true else onClose()
@@ -308,7 +367,7 @@ fun TreeEditor(
                         onClick = { onSave(editingTree) },
                         enabled = hasChanges
                     ) {
-                        Text("保存", fontWeight = FontWeight.Bold, color = if(hasChanges) MaterialTheme.colorScheme.primary else Color.Gray)
+                        Text("保存当前", fontWeight = FontWeight.Bold, color = if(hasChanges) MaterialTheme.colorScheme.primary else Color.Gray)
                     }
                 }
             )
@@ -320,7 +379,87 @@ fun TreeEditor(
         ) {
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("根节点：${editingTree.title}", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                Text("方案管理", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                
+                // 方案选择器
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("当前方案:", fontSize = 12.sp, modifier = Modifier.width(60.dp))
+                            var expanded by remember { mutableStateOf(false) }
+                            Box {
+                                TextButton(onClick = { expanded = true }) {
+                                    Text(currentSchemeName, fontWeight = FontWeight.Bold)
+                                    Icon(Icons.Default.ArrowDropDown, null)
+                                }
+                                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                    allSchemes.forEach { scheme ->
+                                        DropdownMenuItem(
+                                            text = { Text(scheme.name) },
+                                            onClick = {
+                                                onSchemeSwitch(scheme.name)
+                                                expanded = false
+                                            }
+                                        )
+                                    }
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("+ 新建方案", color = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            onNewScheme("新方案 ${allSchemes.size + 1}")
+                                            expanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Row(modifier = Modifier.padding(top = 8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val jsonStr = editingTree.toJson()
+                                    val clip = android.content.ClipData.newPlainText("Knowledge Scheme", jsonStr)
+                                    clipboardManager.setPrimaryClip(clip)
+                                },
+                                modifier = Modifier.weight(1f).height(36.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("导出 JSON", fontSize = 11.sp)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            OutlinedButton(
+                                onClick = { showImportDialog = true },
+                                modifier = Modifier.weight(1f).height(36.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Icon(Icons.Default.ContentPaste, null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("导入 JSON", fontSize = 11.sp)
+                            }
+                            if (allSchemes.size > 1) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = { onDeleteScheme(currentScheme) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), thickness = 0.5.dp)
+                Text("结构编辑: ${editingTree.title}", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
             }
             
             renderEditNodes(

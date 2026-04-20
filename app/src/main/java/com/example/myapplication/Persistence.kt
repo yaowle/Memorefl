@@ -6,22 +6,29 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-@Entity(tableName = "knowledge_tree")
-data class KnowledgeTreeEntity(
-    @PrimaryKey val id: String = "root_tree",
-    val jsonContent: String
+@Entity(tableName = "knowledge_schemes")
+data class KnowledgeScheme(
+    @PrimaryKey val name: String,
+    val jsonContent: String,
+    val lastModified: Long = System.currentTimeMillis()
 )
 
 @Dao
 interface KnowledgeDao {
-    @Query("SELECT * FROM knowledge_tree WHERE id = :id")
-    fun getTree(id: String): Flow<KnowledgeTreeEntity?>
+    @Query("SELECT * FROM knowledge_schemes ORDER BY lastModified DESC")
+    fun getAllSchemes(): Flow<List<KnowledgeScheme>>
+
+    @Query("SELECT * FROM knowledge_schemes WHERE name = :name")
+    suspend fun getScheme(name: String): KnowledgeScheme?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertTree(tree: KnowledgeTreeEntity)
+    suspend fun insertScheme(scheme: KnowledgeScheme)
+
+    @Delete
+    suspend fun deleteScheme(scheme: KnowledgeScheme)
 }
 
-@Database(entities = [KnowledgeTreeEntity::class], version = 1)
+@Database(entities = [KnowledgeScheme::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun knowledgeDao(): KnowledgeDao
 
@@ -35,7 +42,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "knowledge_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration() // 为简化演示，使用破坏性迁移
+                .build()
                 INSTANCE = instance
                 instance
             }
