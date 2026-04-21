@@ -23,6 +23,11 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -773,23 +778,103 @@ fun NodeEditItem(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                val isCompact = level >= 6
+
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    Text("权重: ${node.weight.toInt()}", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.width(42.dp))
-                    Slider(
-                        value = node.weight,
-                        onValueChange = { onChanged(node.copy(weight = it)) },
-                        valueRange = 1f..5f,
-                        steps = 3,
-                        modifier = Modifier.weight(1f)
-                    )
+                    if (!isCompact) {
+                        Text("权重: ", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.width(32.dp))
+                    }
+                    
+                    if (isCompact) {
+                        // 紧凑模式：输入框，支持点击全选/清空
+                        var weightText by remember(node.weight) { mutableStateOf(node.weight.toInt().toString()) }
+                        val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+                        
+                        OutlinedTextField(
+                            value = weightText,
+                            onValueChange = { input: String ->
+                                // 如果输入为空（用户删除了所有内容），允许显示为空，以便重新输入
+                                if (input.isEmpty()) {
+                                    weightText = ""
+                                    return@OutlinedTextField
+                                }
+
+                                // 仅允许输入数字
+                                val filtered = input.filter { it.isDigit() }
+                                if (filtered.isEmpty()) return@OutlinedTextField
+
+                                val num = filtered.toInt()
+                                // 自动修正逻辑
+                                val correctedNum = when {
+                                    num < 1 -> 1
+                                    num > 5 -> 5
+                                    else -> num
+                                }
+                                
+                                weightText = correctedNum.toString()
+                                onChanged(node.copy(weight = correctedNum.toFloat()))
+                            },
+                            modifier = Modifier
+                                .width(64.dp) // 稍微加宽，解决显示不全问题
+                                .height(50.dp)
+                                .onFocusChanged { focusState ->
+                                    // 当获得焦点时，清空当前文本以便重新输入
+                                    if (focusState.isFocused) {
+                                        weightText = ""
+                                    } else {
+                                        // 失去焦点时，如果内容为空，恢复当前实际权重值
+                                        if (weightText.isEmpty()) {
+                                            weightText = node.weight.toInt().toString()
+                                        }
+                                    }
+                                },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                fontSize = 14.sp, 
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center // 文字居中显示
+                            ),
+                            label = { 
+                                val weightLabel = when(node.weight.toInt()) {
+                                    1 -> "极低"
+                                    2 -> "低"
+                                    3 -> "中"
+                                    4 -> "高"
+                                    5 -> "极高"
+                                    else -> "权"
+                                }
+                                Text(weightLabel, fontSize = 9.sp) 
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = { focusManager.clearFocus() }
+                            )
+                        )
+                    } else {
+                        // 普通模式：滑动条
+                        Slider(
+                            value = node.weight,
+                            onValueChange = { onChanged(node.copy(weight = it)) },
+                            valueRange = 1f..5f,
+                            steps = 3,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(node.weight.toInt().toString(), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp))
+                    }
                 }
 
+                Spacer(modifier = Modifier.width(if (isCompact) 8.dp else 0.dp))
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("尾页", fontSize = 10.sp, color = if(node.isEndPage) MaterialTheme.colorScheme.primary else Color.Gray)
+                    if (!isCompact) {
+                        Text("尾页", fontSize = 10.sp, color = if(node.isEndPage) MaterialTheme.colorScheme.primary else Color.Gray)
+                    }
                     Switch(
                         checked = node.isEndPage,
                         onCheckedChange = {
-                            // 设置为尾页时清空子节点，取消尾页时清空内容
                             onChanged(node.copy(
                                 isEndPage = it,
                                 children = if(it) emptyList() else node.children,
@@ -802,7 +887,9 @@ fun NodeEditItem(
 
                 if (!node.isEndPage) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("解除限制", fontSize = 10.sp, color = if(node.limitDisabled) MaterialTheme.colorScheme.primary else Color.Gray)
+                        if (!isCompact) {
+                            Text("解除限制", fontSize = 10.sp, color = if(node.limitDisabled) MaterialTheme.colorScheme.primary else Color.Gray)
+                        }
                         Checkbox(
                             checked = node.limitDisabled,
                             onCheckedChange = { onChanged(node.copy(limitDisabled = it)) },
