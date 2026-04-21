@@ -8,10 +8,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.filled.Input
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -36,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -63,6 +66,10 @@ class MainActivity : ComponentActivity() {
                         KnowledgeApp(
                             state = state,
                             allSchemes = allSchemes,
+                            navigationStack = viewModel.navigationStack,
+                            onPushNode = { viewModel.pushNode(it) },
+                            onPopNode = { viewModel.popNode() },
+                            onResetStack = { viewModel.resetStack(it) },
                             onNodeUpdated = { newNode -> 
                                 viewModel.updateRootNode(state.currentSchemeName, newNode) 
                             },
@@ -86,6 +93,10 @@ class MainActivity : ComponentActivity() {
 fun KnowledgeApp(
     state: KnowledgeUiState.Success,
     allSchemes: List<KnowledgeScheme>,
+    navigationStack: List<KnowledgeNode>,
+    onPushNode: (KnowledgeNode) -> Unit,
+    onPopNode: () -> Unit,
+    onResetStack: (KnowledgeNode) -> Unit,
     onNodeUpdated: (KnowledgeNode) -> Unit,
     onSchemeSwitch: (String) -> Unit,
     onDeleteScheme: (KnowledgeScheme) -> Unit,
@@ -94,20 +105,9 @@ fun KnowledgeApp(
 ) {
     var isEditMode by remember { mutableStateOf(false) }
     var isSettingsMode by remember { mutableStateOf(false) }
-    val navigationStack = remember { mutableStateListOf<KnowledgeNode>() }
     
     val rootNode = state.rootNode
     val currentSchemeName = state.currentSchemeName
-
-    // 处理导航栈逻辑
-    LaunchedEffect(currentSchemeName, rootNode.id) {
-        navigationStack.clear()
-        navigationStack.add(rootNode)
-        val defaultNode = findDefaultNode(rootNode)
-        if (defaultNode != null && defaultNode != rootNode) {
-            navigationStack.add(defaultNode)
-        }
-    }
 
     if (isSettingsMode) {
         SettingsPage(
@@ -166,7 +166,7 @@ fun KnowledgeApp(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (navigationStack.size > 1) {
                                 IconButton(
-                                    onClick = { navigationStack.removeAt(navigationStack.size - 1) },
+                                    onClick = onPopNode,
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
@@ -180,11 +180,7 @@ fun KnowledgeApp(
                                 if (navigationStack.size > 2) {
                                     Spacer(modifier = Modifier.width(12.dp))
                                     IconButton(
-                                        onClick = {
-                                            val first = navigationStack.first()
-                                            navigationStack.clear()
-                                            navigationStack.add(first)
-                                        },
+                                        onClick = { onResetStack(navigationStack.first()) },
                                         modifier = Modifier.size(40.dp)
                                     ) {
                                         Icon(
@@ -220,7 +216,7 @@ fun KnowledgeApp(
                                 nodes = currentNode.children,
                                 onNodeClick = { node ->
                                     if (node.children.isNotEmpty() || node.isEndPage) {
-                                        navigationStack.add(node)
+                                        onPushNode(node)
                                     }
                                 }
                             )
@@ -277,9 +273,22 @@ fun TreeEditor(
 ) {
     var currentEditingTree by remember(editingTree) { mutableStateOf(editingTree) }
     var showExitConfirm by remember { mutableStateOf(false) }
+    
+    // 性能优化：将树展平，避免递归渲染带来的 LazyColumn 性能问题
+    val flatNodes = remember(currentEditingTree) { 
+        flattenTree(currentEditingTree) 
+    }
+    
     var collapsedIds by remember { mutableStateOf(setOf<String>()) }
 
-    val hasChanges = currentEditingTree.toJson() != editingTree.toJson()
+    // 过滤可见节点
+    val visibleNodes = remember(flatNodes, collapsedIds) {
+        flatNodes.filter { item -> item.path.none { collapsedIds.contains(it) } }
+    }
+
+    val hasChanges = remember(currentEditingTree, editingTree) {
+        currentEditingTree != editingTree
+    }
 
     if (showExitConfirm) {
         AlertDialog(
@@ -335,20 +344,97 @@ fun TreeEditor(
         ) {
             item { Spacer(modifier = Modifier.height(8.dp)) }
             
-            renderEditNodes(
-                node = currentEditingTree,
-                level = 0,
-                collapsedIds = collapsedIds,
-                onToggleCollapse = { id ->
-                    collapsedIds = if (collapsedIds.contains(id)) collapsedIds - id else collapsedIds + id
-                },
-                onUpdate = { currentEditingTree = it },
-                onDeleteSelf = null // 根节点不可删除
-            )
+            items(
+                items = visibleNodes,
+                key = { it.node.id }
+            ) { item ->
+                if (item.level == 0) {
+                    // 根节点添加按钮
+                    OutlinedButton(
+                        onClick = {
+                            val newNode = KnowledgeNode(id = UUID.randomUUID().toString(), title = "新分类")
+                            currentEditingTree = currentEditingTree.copy(children = currentEditingTree.children + newNode)
+                        },
+                        modifier = Modifier.padding(vertical = 8.dp).fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null)
+                        Text(" 添加根分类")
+                    }
+                } else {
+                    NodeEditItem(
+                        node = item.node,
+                        level = item.level,
+                        isCollapsed = collapsedIds.contains(item.node.id),
+                        onToggleCollapse = { 
+                            collapsedIds = if (collapsedIds.contains(item.node.id)) collapsedIds - item.node.id else collapsedIds + item.node.id 
+                        },
+                        onChanged = { updatedNode ->
+                            currentEditingTree = updateNodeInTree(currentEditingTree, updatedNode)
+                        },
+                        onDelete = {
+                            currentEditingTree = deleteNodeFromTree(currentEditingTree, item.node.id)
+                        },
+                        onMoveUp = if (!item.isFirst) { { currentEditingTree = moveNodeInTree(currentEditingTree, item.node.id, true) } } else null,
+                        onMoveDown = if (!item.isLast) { { currentEditingTree = moveNodeInTree(currentEditingTree, item.node.id, false) } } else null
+                    )
+                }
+            }
             
             item { Spacer(modifier = Modifier.height(80.dp)) }
         }
     }
+}
+
+// 展平后的节点包装类
+data class FlatNode(
+    val node: KnowledgeNode,
+    val level: Int,
+    val path: List<String>, // 记录父节点路径，用于判断是否可见
+    val isFirst: Boolean,
+    val isLast: Boolean
+)
+
+fun flattenTree(root: KnowledgeNode): List<FlatNode> {
+    val result = mutableListOf<FlatNode>()
+    result.add(FlatNode(root, 0, emptyList(), isFirst = true, isLast = true)) 
+    
+    fun traverse(node: KnowledgeNode, level: Int, path: List<String>) {
+        node.children.forEachIndexed { index, child ->
+            result.add(FlatNode(child, level, path, index == 0, index == node.children.size - 1))
+            traverse(child, level + 1, path + child.id)
+        }
+    }
+    traverse(root, 1, emptyList())
+    return result
+}
+
+fun updateNodeInTree(root: KnowledgeNode, updatedNode: KnowledgeNode): KnowledgeNode {
+    if (root.id == updatedNode.id) return updatedNode
+    return root.copy(children = root.children.map { updateNodeInTree(it, updatedNode) })
+}
+
+fun deleteNodeFromTree(root: KnowledgeNode, targetId: String): KnowledgeNode {
+    return root.copy(children = root.children.filter { it.id != targetId }.map { deleteNodeFromTree(it, targetId) })
+}
+
+fun moveNodeInTree(root: KnowledgeNode, targetId: String, up: Boolean): KnowledgeNode {
+    val index = root.children.indexOfFirst { it.id == targetId }
+    if (index != -1) {
+        val newChildren = root.children.toMutableList()
+        if (up && index > 0) {
+            val tmp = newChildren[index]
+            newChildren[index] = newChildren[index - 1]
+            newChildren[index - 1] = tmp
+            return root.copy(children = newChildren)
+        } else if (!up && index < newChildren.size - 1) {
+            val tmp = newChildren[index]
+            newChildren[index] = newChildren[index + 1]
+            newChildren[index + 1] = tmp
+            return root.copy(children = newChildren)
+        }
+    }
+    return root.copy(children = root.children.map { moveNodeInTree(it, targetId, up) })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -386,10 +472,15 @@ fun SettingsPage(
             confirmButton = {
                 TextButton(onClick = {
                     try {
-                        onImport(importText.toNode())
-                        showImportDialog = false
-                    } catch (e: Exception) {}
-                }) { Text("导入") }
+                        if (importText.isNotBlank()) {
+                            onImport(importText.toNode())
+                            showImportDialog = false
+                            android.widget.Toast.makeText(context, "导入成功", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(context, "导入失败: 格式错误", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("确认导入") }
             }
         )
     }
@@ -491,30 +582,44 @@ fun SettingsPage(
             Text("数据导入导出", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(12.dp))
             
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                OutlinedButton(onClick = {
-                    val clip = android.content.ClipData.newPlainText("JSON", editingTree.toJson())
-                    clipboardManager.setPrimaryClip(clip)
-                }, modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        val clip = android.content.ClipData.newPlainText("JSON", editingTree.toJson(pretty = false))
+                        clipboardManager.setPrimaryClip(clip)
+                        android.widget.Toast.makeText(context, "已复制压缩版 JSON", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
                     Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
-                    Text(" 复制 JSON")
+                    Text(" 复制(压缩)")
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                OutlinedButton(onClick = { showImportDialog = true }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.ContentPaste, null, modifier = Modifier.size(16.dp))
-                    Text(" 粘贴 JSON")
+                
+                OutlinedButton(
+                    onClick = {
+                        val clip = android.content.ClipData.newPlainText("JSON", editingTree.toJson(pretty = true))
+                        clipboardManager.setPrimaryClip(clip)
+                        android.widget.Toast.makeText(context, "已复制美化版 JSON", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.FormatAlignLeft, null, modifier = Modifier.size(16.dp))
+                    Text(" 复制(美化)")
                 }
             }
-
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
             OutlinedButton(
-                onClick = {
-                    val clip = android.content.ClipData.newPlainText("CSV", editingTree.toCsv())
-                    clipboardManager.setPrimaryClip(clip)
-                }, 
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                onClick = { showImportDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
             ) {
-                Icon(Icons.Default.TableChart, null, modifier = Modifier.size(16.dp))
-                Text(" 复制 CSV (Excel可用)")
+                Icon(Icons.AutoMirrored.Filled.Input, null, modifier = Modifier.size(16.dp))
+                Text(" 导入 JSON 数据")
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -540,110 +645,7 @@ fun SettingsPage(
     }
 }
 
-fun LazyListScope.renderEditNodes(
-    node: KnowledgeNode,
-    level: Int,
-    collapsedIds: Set<String>,
-    onToggleCollapse: (String) -> Unit,
-    onUpdate: (KnowledgeNode) -> Unit,
-    onDeleteSelf: (() -> Unit)? = null // 新增：删除自身的回调
-) {
-    val isCollapsed = collapsedIds.contains(node.id)
 
-    if (level > 0) {
-        item(key = node.id) {
-            NodeEditItem(
-                node = node,
-                level = level,
-                isCollapsed = isCollapsed,
-                onToggleCollapse = { onToggleCollapse(node.id) },
-                onChanged = { onUpdate(it) },
-                onDelete = onDeleteSelf // 传递删除回调
-            )
-        }
-    }
-
-    if (!isCollapsed || level == 0) {
-        // 渲染子节点
-        node.children.forEachIndexed { index, child ->
-            renderEditNodes(
-                node = child,
-                level = level + 1,
-                collapsedIds = collapsedIds,
-                onToggleCollapse = onToggleCollapse,
-                onUpdate = { updatedChild ->
-                    val newChildren = node.children.toMutableList()
-                    newChildren[index] = updatedChild
-                    onUpdate(node.copy(children = newChildren))
-                },
-                onDeleteSelf = {
-                    val newChildren = node.children.toMutableList()
-                    newChildren.removeAt(index)
-                    onUpdate(node.copy(children = newChildren))
-                }
-            )
-
-            // 排序操作区域
-            if (node.children.size > 1) {
-                item(key = child.id + "_actions") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = (level * 24 + 16).dp, end = 16.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("排序: ", fontSize = 10.sp, color = Color.Gray)
-                        if (index > 0) {
-                            IconButton(
-                                onClick = {
-                                    val newChildren = node.children.toMutableList()
-                                    val tmp = newChildren[index]
-                                    newChildren[index] = newChildren[index - 1]
-                                    newChildren[index - 1] = tmp
-                                    onUpdate(node.copy(children = newChildren))
-                                },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(Icons.Default.ArrowUpward, "上移", modifier = Modifier.size(16.dp), tint = Color.Gray)
-                            }
-                        }
-                        if (index < node.children.size - 1) {
-                            IconButton(
-                                onClick = {
-                                    val newChildren = node.children.toMutableList()
-                                    val tmp = newChildren[index]
-                                    newChildren[index] = newChildren[index + 1]
-                                    newChildren[index + 1] = tmp
-                                    onUpdate(node.copy(children = newChildren))
-                                },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(Icons.Default.ArrowDownward, "下移", modifier = Modifier.size(16.dp), tint = Color.Gray)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 只有根节点保留外部添加按钮
-    if (level == 0) {
-        item(key = "root_add") {
-            OutlinedButton(
-                onClick = {
-                    val newNode = KnowledgeNode(id = UUID.randomUUID().toString(), title = "新分类")
-                    // 根分类插入到最下面
-                    onUpdate(node.copy(children = node.children + newNode))
-                },
-                modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.Add, null)
-                Text(" 添加根分类")
-            }
-        }
-    }
-}
 
 @Composable
 fun NodeEditItem(
@@ -652,8 +654,34 @@ fun NodeEditItem(
     isCollapsed: Boolean,
     onToggleCollapse: () -> Unit,
     onChanged: (KnowledgeNode) -> Unit,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null
 ) {
+    // 标题输入防抖
+    var localTitle by remember(node.id) { mutableStateOf(node.title) }
+    LaunchedEffect(node.title) {
+        if (localTitle != node.title) localTitle = node.title
+    }
+    LaunchedEffect(localTitle) {
+        if (localTitle != node.title) {
+            delay(500)
+            onChanged(node.copy(title = localTitle))
+        }
+    }
+
+    // 内容输入防抖
+    var localContent by remember(node.id) { mutableStateOf(node.content) }
+    LaunchedEffect(node.content) {
+        if (localContent != node.content) localContent = node.content
+    }
+    LaunchedEffect(localContent) {
+        if (localContent != node.content) {
+            delay(500)
+            onChanged(node.copy(content = localContent))
+        }
+    }
+
     // 根据层级改变卡片色调
     val backgroundColor = if (level % 2 == 0) Color(0xFFFDFDFD) else Color.White
     val levelColor = when(level % 4) {
@@ -720,6 +748,18 @@ fun NodeEditItem(
                 
                 Spacer(modifier = Modifier.weight(1f))
 
+                // 排序按钮
+                if (onMoveUp != null) {
+                    IconButton(onClick = onMoveUp, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.ArrowUpward, "上移", modifier = Modifier.size(16.dp), tint = Color.Gray)
+                    }
+                }
+                if (onMoveDown != null) {
+                    IconButton(onClick = onMoveDown, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.ArrowDownward, "下移", modifier = Modifier.size(16.dp), tint = Color.Gray)
+                    }
+                }
+
                 // 核心改动：将添加按钮整合进卡片内
                 val canAdd = !node.isEndPage && (node.limitDisabled || (node.children.size < 3))
                 if (canAdd) {
@@ -755,8 +795,8 @@ fun NodeEditItem(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 OutlinedTextField(
-                    value = node.title,
-                    onValueChange = { onChanged(node.copy(title = it)) },
+                    value = localTitle,
+                    onValueChange = { localTitle = it },
                     modifier = Modifier.weight(1f),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
                     label = { Text("名称", fontSize = 10.sp) },
@@ -786,52 +826,39 @@ fun NodeEditItem(
                     }
                     
                     if (isCompact) {
-                        // 紧凑模式：输入框，支持点击全选/清空
+                        // 紧凑模式：输入框
                         var weightText by remember(node.weight) { mutableStateOf(node.weight.toInt().toString()) }
                         val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
                         
                         OutlinedTextField(
                             value = weightText,
                             onValueChange = { input: String ->
-                                // 如果输入为空（用户删除了所有内容），允许显示为空，以便重新输入
                                 if (input.isEmpty()) {
                                     weightText = ""
                                     return@OutlinedTextField
                                 }
-
-                                // 仅允许输入数字
                                 val filtered = input.filter { it.isDigit() }
                                 if (filtered.isEmpty()) return@OutlinedTextField
-
                                 val num = filtered.toInt()
-                                // 自动修正逻辑
                                 val correctedNum = when {
                                     num < 1 -> 1
                                     num > 5 -> 5
                                     else -> num
                                 }
-                                
                                 weightText = correctedNum.toString()
                                 onChanged(node.copy(weight = correctedNum.toFloat()))
                             },
                             modifier = Modifier
-                                .width(64.dp) // 稍微加宽，解决显示不全问题
+                                .width(64.dp)
                                 .height(50.dp)
                                 .onFocusChanged { focusState ->
-                                    // 当获得焦点时，清空当前文本以便重新输入
-                                    if (focusState.isFocused) {
-                                        weightText = ""
-                                    } else {
-                                        // 失去焦点时，如果内容为空，恢复当前实际权重值
-                                        if (weightText.isEmpty()) {
-                                            weightText = node.weight.toInt().toString()
-                                        }
-                                    }
+                                    if (focusState.isFocused) weightText = "" 
+                                    else if (weightText.isEmpty()) weightText = node.weight.toInt().toString()
                                 },
                             textStyle = androidx.compose.ui.text.TextStyle(
                                 fontSize = 14.sp, 
                                 fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center // 文字居中显示
+                                textAlign = TextAlign.Center
                             ),
                             label = { 
                                 val weightLabel = when(node.weight.toInt()) {
@@ -902,8 +929,8 @@ fun NodeEditItem(
             if (node.isEndPage) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = node.content,
-                    onValueChange = { onChanged(node.copy(content = it)) },
+                    value = localContent,
+                    onValueChange = { localContent = it },
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 20.sp),
                     label = { Text("详细内容 (支持多行)", fontSize = 10.sp) },

@@ -71,24 +71,16 @@ abstract class AppDatabase : RoomDatabase() {
     }
 }
 
-private val json = Json { 
+private val dbJson = Json { 
+    ignoreUnknownKeys = true 
+}
+
+private val exportJson = Json { 
     ignoreUnknownKeys = true 
     prettyPrint = true
 }
 
-fun KnowledgeNode.toJson(): String = json.encodeToString(this)
-fun String.toNode(): KnowledgeNode = json.decodeFromString(this)
+fun KnowledgeNode.toJson(pretty: Boolean = false): String = 
+    if (pretty) exportJson.encodeToString(this) else dbJson.encodeToString(this)
 
-fun KnowledgeNode.toCsv(): String {
-    val sb = StringBuilder()
-    // CSV Header
-    sb.append("层级,ID,标题,权重,是否终点,内容\n")
-    fun traverse(node: KnowledgeNode, level: Int) {
-        val escapedTitle = node.title.replace("\"", "\"\"")
-        val escapedContent = node.content.replace("\"", "\"\"")
-        sb.append("${level},${node.id},\"$escapedTitle\",${node.weight.toInt()},${if (node.isEndPage) "是" else "否"},\"$escapedContent\"\n")
-        node.children.forEach { traverse(it, level + 1) }
-    }
-    traverse(this, 0)
-    return sb.toString()
-}
+fun String.toNode(): KnowledgeNode = dbJson.decodeFromString(this)

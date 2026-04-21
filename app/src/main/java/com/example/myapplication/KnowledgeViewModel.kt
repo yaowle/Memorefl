@@ -20,17 +20,66 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
     // 内部使用的防抖保存 Flow
     private val saveRequestFlow = MutableSharedFlow<Pair<String, KnowledgeNode>>(replay = 0)
 
+    // 导航栈管理
+    private val _navigationStack = mutableStateListOf<KnowledgeNode>()
+    val navigationStack: List<KnowledgeNode> = _navigationStack
+
+    fun pushNode(node: KnowledgeNode) {
+        _navigationStack.add(node)
+    }
+
+    fun popNode() {
+        if (_navigationStack.size > 1) {
+            _navigationStack.removeAt(_navigationStack.size - 1)
+        }
+    }
+
+    fun resetStack(rootNode: KnowledgeNode) {
+        _navigationStack.clear()
+        _navigationStack.add(rootNode)
+        val defaultNode = findDefaultNode(rootNode)
+        if (defaultNode != null && defaultNode != rootNode) {
+            _navigationStack.add(defaultNode)
+        }
+    }
+
+    private fun findDefaultNode(node: KnowledgeNode): KnowledgeNode? {
+        if (node.isDefault) return node
+        for (child in node.children) {
+            val found = findDefaultNode(child)
+            if (found != null) return found
+        }
+        return null
+    }
+
     init {
         viewModelScope.launch {
             allSchemes.collect { schemes ->
                 if (schemes.isEmpty()) {
                     createDefaultScheme()
-                } else {
-                    if (_uiState.value is KnowledgeUiState.Loading) {
-                        _uiState.value = KnowledgeUiState.Success(
-                            currentSchemeName = schemes.first().name,
-                            rootNode = schemes.first().jsonContent.toNode()
-                        )
+                    return@collect
+                }
+
+                val currentState = _uiState.value
+                if (currentState is KnowledgeUiState.Loading) {
+                    // 第一次加载：取最新修改的方案
+                    val firstScheme = schemes.first()
+                    val rootNode = firstScheme.jsonContent.toNode()
+                    _uiState.value = KnowledgeUiState.Success(
+                        currentSchemeName = firstScheme.name,
+                        rootNode = rootNode
+                    )
+                    resetStack(rootNode)
+                } else if (currentState is KnowledgeUiState.Success) {
+                    // 已经在运行中：如果数据库中的当前方案内容变了（比如导入、外部修改），同步更新 UI
+                    val currentFromDb = schemes.find { it.name == currentState.currentSchemeName }
+                    if (currentFromDb != null) {
+                        val newNode = currentFromDb.jsonContent.toNode()
+                        if (newNode != currentState.rootNode) {
+                            _uiState.value = currentState.copy(rootNode = newNode)
+                            // 同步更新导航栈
+                            syncNavigationStack(newNode)
+                        }
                     }
                 }
             }
@@ -67,20 +116,48 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun switchScheme(name: String, allSchemes: List<KnowledgeScheme>) {
         val scheme = allSchemes.find { it.name == name } ?: return
+        val rootNode = scheme.jsonContent.toNode()
         _uiState.value = KnowledgeUiState.Success(
             currentSchemeName = name,
-            rootNode = scheme.jsonContent.toNode()
+            rootNode = rootNode
         )
+        resetStack(rootNode)
+        
+        // 关键修复：切换方案时更新时间戳，确保下次启动时能正确恢复
+        viewModelScope.launch {
+            dao.insertScheme(scheme.copy(lastModified = System.currentTimeMillis()))
+        }
     }
 
     fun updateRootNode(name: String, newNode: KnowledgeNode) {
         val currentState = _uiState.value
         if (currentState is KnowledgeUiState.Success) {
             _uiState.value = currentState.copy(rootNode = newNode)
+            // 关键修复：同步更新导航栈中的节点，防止显示旧快照
+            syncNavigationStack(newNode)
             viewModelScope.launch {
                 saveRequestFlow.emit(name to newNode)
             }
         }
+    }
+
+    private fun syncNavigationStack(root: KnowledgeNode) {
+        for (i in _navigationStack.indices) {
+            val oldNode = _navigationStack[i]
+            val newNode = findNodeById(root, oldNode.id)
+            if (newNode != null) {
+                _navigationStack[i] = newNode
+            }
+        }
+    }
+
+    private fun findNodeById(root: KnowledgeNode, id: String): KnowledgeNode? {
+        if (root.id == id) return root
+        for (child in root.children) {
+            val found = findNodeById(child, id)
+            if (found != null) return found
+        }
+        return null
     }
 
     fun deleteScheme(scheme: KnowledgeScheme) {
