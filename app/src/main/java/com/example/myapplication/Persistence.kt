@@ -3,8 +3,21 @@ package com.example.myapplication
 import android.content.Context
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+
+@Serializable
+data class KnowledgeNode(
+    val id: String,
+    val title: String,
+    val weight: Float = 1f,
+    val children: List<KnowledgeNode> = emptyList(),
+    val isDefault: Boolean = false,
+    val limitDisabled: Boolean = false,
+    val isEndPage: Boolean = false,
+    val content: String = ""
+)
 
 @Entity(tableName = "knowledge_schemes")
 data class KnowledgeScheme(
@@ -26,6 +39,12 @@ interface KnowledgeDao {
 
     @Delete
     suspend fun deleteScheme(scheme: KnowledgeScheme)
+
+    @Query("DELETE FROM knowledge_schemes WHERE name = :name")
+    suspend fun deleteSchemeByName(name: String)
+
+    @Query("SELECT * FROM knowledge_schemes ORDER BY lastModified DESC LIMIT 1")
+    suspend fun getLatestScheme(): KnowledgeScheme?
 }
 
 @Database(entities = [KnowledgeScheme::class], version = 2, exportSchema = false)
@@ -65,8 +84,9 @@ fun KnowledgeNode.toCsv(): String {
     // CSV Header
     sb.append("层级,ID,标题,权重,是否终点,内容\n")
     fun traverse(node: KnowledgeNode, level: Int) {
+        val escapedTitle = node.title.replace("\"", "\"\"")
         val escapedContent = node.content.replace("\"", "\"\"")
-        sb.append("${level},${node.id},${node.title},${node.weight.toInt()},${if (node.isEndPage) "是" else "否"},\"$escapedContent\"\n")
+        sb.append("${level},${node.id},\"$escapedTitle\",${node.weight.toInt()},${if (node.isEndPage) "是" else "否"},\"$escapedContent\"\n")
         node.children.forEach { traverse(it, level + 1) }
     }
     traverse(this, 0)

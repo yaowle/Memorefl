@@ -11,7 +11,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,71 +36,38 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
-// 数据结构：节点
-@Serializable
-data class KnowledgeNode(
-    val id: String,
-    val title: String,
-    val weight: Float = 1f,
-    val children: List<KnowledgeNode> = emptyList(),
-    val isDefault: Boolean = false,
-    val limitDisabled: Boolean = false,
-    val isEndPage: Boolean = false,
-    val content: String = ""
-)
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
-    private val database by lazy { AppDatabase.getDatabase(this) }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        setContent {
+            val viewModel: KnowledgeViewModel = viewModel()
+            val uiState by viewModel.uiState.collectAsState()
+            val allSchemes by viewModel.allSchemes.collectAsState(initial = emptyList())
 
-        lifecycleScope.launch {
-            // 获取所有方案
-            val allSchemes = database.knowledgeDao().getAllSchemes().firstOrNull() ?: emptyList()
-            
-            // 如果没有任何方案，创建一个默认方案
-            if (allSchemes.isEmpty()) {
-                val defaultRoot = KnowledgeNode(
-                    id = "root",
-                    title = "默认方案",
-                    children = listOf(
-                        KnowledgeNode("1", "工作", weight = 3f, children = listOf(
-                            KnowledgeNode("1-1", "会议"),
-                            KnowledgeNode("1-2", "文档")
-                        )),
-                        KnowledgeNode("2", "生活", weight = 2f, children = listOf(
-                            KnowledgeNode("2-1", "运动"),
-                            KnowledgeNode("2-2", "娱乐")
-                        ))
-                    )
-                )
-                database.knowledgeDao().insertScheme(KnowledgeScheme("默认方案", defaultRoot.toJson()))
-            }
-
-            setContent {
-                KnowledgeAppTheme {
-                    val schemes by database.knowledgeDao().getAllSchemes().collectAsState(initial = emptyList())
-                    
-                    if (schemes.isNotEmpty()) {
+            KnowledgeAppTheme {
+                when (val state = uiState) {
+                    is KnowledgeUiState.Loading -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                    is KnowledgeUiState.Success -> {
                         KnowledgeApp(
-                            allSchemes = schemes,
-                            onSchemeChanged = { name, newRoot ->
-                                lifecycleScope.launch {
-                                    database.knowledgeDao().insertScheme(KnowledgeScheme(name, newRoot.toJson()))
-                                }
+                            state = state,
+                            allSchemes = allSchemes,
+                            onNodeUpdated = { newNode -> 
+                                viewModel.updateRootNode(state.currentSchemeName, newNode) 
                             },
-                            onDeleteScheme = { scheme ->
-                                lifecycleScope.launch {
-                                    database.knowledgeDao().deleteScheme(scheme)
-                                }
+                            onSchemeSwitch = { name -> 
+                                viewModel.switchScheme(name, allSchemes) 
                             },
-                            onNewScheme = { name ->
-                                lifecycleScope.launch {
-                                    val newNode = KnowledgeNode(id = UUID.randomUUID().toString(), title = name)
-                                    database.knowledgeDao().insertScheme(KnowledgeScheme(name, newNode.toJson()))
-                                }
+                            onDeleteScheme = { viewModel.deleteScheme(it) },
+                            onNewScheme = { viewModel.createNewScheme(it) },
+                            onRenameScheme = { old, new -> 
+                                viewModel.renameScheme(old, new, state.rootNode.toJson()) 
                             }
                         )
                     }
@@ -111,39 +79,28 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun KnowledgeApp(
+    state: KnowledgeUiState.Success,
     allSchemes: List<KnowledgeScheme>,
-    onSchemeChanged: (String, KnowledgeNode) -> Unit,
+    onNodeUpdated: (KnowledgeNode) -> Unit,
+    onSchemeSwitch: (String) -> Unit,
     onDeleteScheme: (KnowledgeScheme) -> Unit,
-    onNewScheme: (String) -> Unit
+    onNewScheme: (String) -> Unit,
+    onRenameScheme: (String, String) -> Unit
 ) {
-    var currentSchemeName by remember { mutableStateOf(allSchemes.first().name) }
-    
-    // 确保当前方案存在，如果不存在（被删了）则切回第一个
-    val currentScheme = allSchemes.find { it.name == currentSchemeName } ?: allSchemes.first().also { currentSchemeName = it.name }
-    
-    var rootNode by remember(currentScheme.name) { mutableStateOf(currentScheme.jsonContent.toNode()) }
     var isEditMode by remember { mutableStateOf(false) }
     var isSettingsMode by remember { mutableStateOf(false) }
     val navigationStack = remember { mutableStateListOf<KnowledgeNode>() }
     
-    // 自动保存修改
-    LaunchedEffect(rootNode) {
-        if (rootNode.toJson() != currentScheme.jsonContent) {
-            onSchemeChanged(currentSchemeName, rootNode)
-        }
-    }
+    val rootNode = state.rootNode
+    val currentSchemeName = state.currentSchemeName
 
-    // 处理导航栈重置
-    LaunchedEffect(currentSchemeName) {
+    // 处理导航栈逻辑
+    LaunchedEffect(currentSchemeName, rootNode.id) {
         navigationStack.clear()
-        val node = currentScheme.jsonContent.toNode()
-        rootNode = node
-        val defaultNode = findDefaultNode(node)
-        if (defaultNode != null && defaultNode != node) {
-            navigationStack.add(node)
+        navigationStack.add(rootNode)
+        val defaultNode = findDefaultNode(rootNode)
+        if (defaultNode != null && defaultNode != rootNode) {
             navigationStack.add(defaultNode)
-        } else {
-            navigationStack.add(node)
         }
     }
 
@@ -152,20 +109,15 @@ fun KnowledgeApp(
             currentSchemeName = currentSchemeName,
             allSchemes = allSchemes,
             onSchemeSwitch = { 
-                currentSchemeName = it
+                onSchemeSwitch(it)
                 isSettingsMode = false 
             },
             onNewScheme = onNewScheme,
             onDeleteScheme = onDeleteScheme,
-            onRenameScheme = { old, new ->
-                onSchemeChanged(new, allSchemes.find { it.name == old }!!.jsonContent.toNode())
-                onDeleteScheme(allSchemes.find { it.name == old }!!)
-                currentSchemeName = new
-            },
+            onRenameScheme = onRenameScheme,
             editingTree = rootNode,
             onImport = { 
-                onSchemeChanged(currentSchemeName, it)
-                rootNode = it
+                onNodeUpdated(it)
                 isSettingsMode = false
             },
             onClose = { isSettingsMode = false }
@@ -175,8 +127,7 @@ fun KnowledgeApp(
             currentSchemeName = currentSchemeName,
             editingTree = rootNode,
             onSave = { 
-                rootNode = it
-                onSchemeChanged(currentSchemeName, it)
+                onNodeUpdated(it)
                 isEditMode = false
             },
             onOpenSettings = { isSettingsMode = true },
@@ -321,7 +272,8 @@ fun TreeEditor(
 ) {
     var currentEditingTree by remember(editingTree) { mutableStateOf(editingTree) }
     var showExitConfirm by remember { mutableStateOf(false) }
-    
+    var collapsedIds by remember { mutableStateOf(setOf<String>()) }
+
     val hasChanges = currentEditingTree.toJson() != editingTree.toJson()
 
     if (showExitConfirm) {
@@ -381,7 +333,12 @@ fun TreeEditor(
             renderEditNodes(
                 node = currentEditingTree,
                 level = 0,
-                onUpdate = { currentEditingTree = it }
+                collapsedIds = collapsedIds,
+                onToggleCollapse = { id ->
+                    collapsedIds = if (collapsedIds.contains(id)) collapsedIds - id else collapsedIds + id
+                },
+                onUpdate = { currentEditingTree = it },
+                onDeleteSelf = null // 根节点不可删除
             )
             
             item { Spacer(modifier = Modifier.height(80.dp)) }
@@ -499,7 +456,11 @@ fun SettingsPage(
             }
 
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                OutlinedButton(onClick = { onNewScheme("新方案 ${allSchemes.size + 1}") }) { 
+                OutlinedButton(onClick = { 
+                    // 解决新建方案重名导致无法新建的问题：使用时间戳或自增序号确保名称唯一
+                    val timestamp = System.currentTimeMillis() % 10000
+                    onNewScheme("新方案 $timestamp") 
+                }) { 
                     Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
                     Text(" 新建") 
                 }
@@ -577,68 +538,103 @@ fun SettingsPage(
 fun LazyListScope.renderEditNodes(
     node: KnowledgeNode,
     level: Int,
-    onUpdate: (KnowledgeNode) -> Unit
+    collapsedIds: Set<String>,
+    onToggleCollapse: (String) -> Unit,
+    onUpdate: (KnowledgeNode) -> Unit,
+    onDeleteSelf: (() -> Unit)? = null // 新增：删除自身的回调
 ) {
+    val isCollapsed = collapsedIds.contains(node.id)
+
     if (level > 0) {
         item(key = node.id) {
             NodeEditItem(
                 node = node,
                 level = level,
-                onChanged = { onUpdate(it) }
+                isCollapsed = isCollapsed,
+                onToggleCollapse = { onToggleCollapse(node.id) },
+                onChanged = { onUpdate(it) },
+                onDelete = onDeleteSelf // 传递删除回调
             )
         }
     }
 
-    // 渲染子节点，并提供删除子节点的能力
-    node.children.forEachIndexed { index, child ->
-        renderEditNodes(
-            node = child,
-            level = level + 1,
-            onUpdate = { updatedChild ->
-                val newChildren = node.children.toMutableList()
-                newChildren[index] = updatedChild
-                onUpdate(node.copy(children = newChildren))
-            }
-        )
-        
-        // 在每个节点下方提供“删除此项”按钮
-        item(key = child.id + "_del") {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = (level * 24 + 16).dp),
-                horizontalArrangement = Arrangement.End
-            ) {
-                TextButton(
-                    onClick = {
-                        val newChildren = node.children.toMutableList()
-                        newChildren.removeAt(index)
-                        onUpdate(node.copy(children = newChildren))
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red.copy(alpha = 0.6f))
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Text("删除「${child.title}」", fontSize = 10.sp)
+    if (!isCollapsed || level == 0) {
+        // 渲染子节点
+        node.children.forEachIndexed { index, child ->
+            renderEditNodes(
+                node = child,
+                level = level + 1,
+                collapsedIds = collapsedIds,
+                onToggleCollapse = onToggleCollapse,
+                onUpdate = { updatedChild ->
+                    val newChildren = node.children.toMutableList()
+                    newChildren[index] = updatedChild
+                    onUpdate(node.copy(children = newChildren))
+                },
+                onDeleteSelf = {
+                    val newChildren = node.children.toMutableList()
+                    newChildren.removeAt(index)
+                    onUpdate(node.copy(children = newChildren))
+                }
+            )
+
+            // 排序操作区域
+            if (node.children.size > 1) {
+                item(key = child.id + "_actions") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = (level * 24 + 16).dp, end = 16.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("排序: ", fontSize = 10.sp, color = Color.Gray)
+                        if (index > 0) {
+                            IconButton(
+                                onClick = {
+                                    val newChildren = node.children.toMutableList()
+                                    val tmp = newChildren[index]
+                                    newChildren[index] = newChildren[index - 1]
+                                    newChildren[index - 1] = tmp
+                                    onUpdate(node.copy(children = newChildren))
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.ArrowUpward, "上移", modifier = Modifier.size(16.dp), tint = Color.Gray)
+                            }
+                        }
+                        if (index < node.children.size - 1) {
+                            IconButton(
+                                onClick = {
+                                    val newChildren = node.children.toMutableList()
+                                    val tmp = newChildren[index]
+                                    newChildren[index] = newChildren[index + 1]
+                                    newChildren[index + 1] = tmp
+                                    onUpdate(node.copy(children = newChildren))
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.ArrowDownward, "下移", modifier = Modifier.size(16.dp), tint = Color.Gray)
+                            }
+                        }
+                    }
                 }
             }
-            HorizontalDivider(modifier = Modifier.padding(start = (level * 24).dp), thickness = 0.5.dp, color = Color.LightGray.copy(alpha = 0.5f))
         }
     }
 
-    // 添加按钮
-    item(key = node.id + "_add") {
-        val canAdd = !node.isEndPage && ((level == 0) || node.limitDisabled || (node.children.size < 3))
-        if (canAdd) {
+    // 只有根节点保留外部添加按钮
+    if (level == 0) {
+        item(key = "root_add") {
             OutlinedButton(
                 onClick = {
                     val newNode = KnowledgeNode(id = UUID.randomUUID().toString(), title = "新分类")
+                    // 根分类插入到最下面
                     onUpdate(node.copy(children = node.children + newNode))
                 },
-                modifier = Modifier.padding(start = (level * 24).dp).height(32.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.padding(16.dp).fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("在「${node.title}」下添加", fontSize = 11.sp)
+                Icon(Icons.Default.Add, null)
+                Text(" 添加根分类")
             }
         }
     }
@@ -648,9 +644,12 @@ fun LazyListScope.renderEditNodes(
 fun NodeEditItem(
     node: KnowledgeNode,
     level: Int,
-    onChanged: (KnowledgeNode) -> Unit
+    isCollapsed: Boolean,
+    onToggleCollapse: () -> Unit,
+    onChanged: (KnowledgeNode) -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
-    // 根据层级改变卡片色调，易于辨别，并增加侧边线条标识层级
+    // 根据层级改变卡片色调
     val backgroundColor = if (level % 2 == 0) Color(0xFFFDFDFD) else Color.White
     val levelColor = when(level % 4) {
         1 -> Color(0xFF8DA47E)
@@ -679,10 +678,77 @@ fun NodeEditItem(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            // 顶部信息：层级数字与收起切换
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+            ) {
+                // 层级小数字
+                Surface(
+                    color = levelColor.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.padding(end = 8.dp)
+                ) {
+                    Text(
+                        text = "L$level",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = levelColor,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
+
+                // 收起/展开图标
+                if (node.children.isNotEmpty()) {
+                    IconButton(
+                        onClick = onToggleCollapse,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            if (isCollapsed) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
+                            contentDescription = "切换收起",
+                            modifier = Modifier.size(20.dp),
+                            tint = Color.Gray
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.weight(1f))
+
+                // 核心改动：将添加按钮整合进卡片内
+                val canAdd = !node.isEndPage && (node.limitDisabled || (node.children.size < 3))
+                if (canAdd) {
+                    TextButton(
+                        onClick = {
+                            val newNode = KnowledgeNode(id = UUID.randomUUID().toString(), title = "新分类")
+                            onChanged(node.copy(children = listOf(newNode) + node.children))
+                        },
+                        modifier = Modifier.height(28.dp).padding(end = 12.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                        Text("添加子项", fontSize = 10.sp)
+                    }
+                }
+
+                if (onDelete != null) {
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, "删除", modifier = Modifier.size(18.dp), tint = Color.Red.copy(alpha = 0.6f))
+                    }
+                }
+                
+                if (node.isDefault) {
+                    Icon(Icons.Default.Star, "默认", tint = Color(0xFFFBC02D), modifier = Modifier.size(16.dp))
+                }
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(modifier = Modifier.size(4.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
                 Spacer(modifier = Modifier.width(8.dp))
-                
+
                 OutlinedTextField(
                     value = node.title,
                     onValueChange = { onChanged(node.copy(title = it)) },
@@ -691,7 +757,7 @@ fun NodeEditItem(
                     label = { Text("名称", fontSize = 10.sp) },
                     singleLine = true
                 )
-                
+
                 IconButton(onClick = { onChanged(node.copy(isDefault = !node.isDefault)) }) {
                     Icon(
                         if (node.isDefault) Icons.Default.Star else Icons.Default.StarBorder,
@@ -701,7 +767,7 @@ fun NodeEditItem(
                     )
                 }
             }
-            
+
             Row(
                 modifier = Modifier.padding(top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -717,18 +783,18 @@ fun NodeEditItem(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("尾页", fontSize = 10.sp, color = if(node.isEndPage) MaterialTheme.colorScheme.primary else Color.Gray)
                     Switch(
                         checked = node.isEndPage,
-                        onCheckedChange = { 
+                        onCheckedChange = {
                             // 设置为尾页时清空子节点，取消尾页时清空内容
                             onChanged(node.copy(
-                                isEndPage = it, 
+                                isEndPage = it,
                                 children = if(it) emptyList() else node.children,
                                 content = if(!it) "" else node.content
-                            )) 
+                            ))
                         },
                         modifier = Modifier.scale(0.6f)
                     )
