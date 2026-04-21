@@ -4,7 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -123,6 +123,7 @@ fun KnowledgeApp(
     
     var rootNode by remember(currentScheme.name) { mutableStateOf(currentScheme.jsonContent.toNode()) }
     var isEditMode by remember { mutableStateOf(false) }
+    var isSettingsMode by remember { mutableStateOf(false) }
     val navigationStack = remember { mutableStateListOf<KnowledgeNode>() }
     
     // 自动保存修改
@@ -146,17 +147,39 @@ fun KnowledgeApp(
         }
     }
 
-    if (isEditMode) {
-        TreeEditor(
+    if (isSettingsMode) {
+        SettingsPage(
             currentSchemeName = currentSchemeName,
             allSchemes = allSchemes,
-            onSchemeSwitch = { currentSchemeName = it },
+            onSchemeSwitch = { 
+                currentSchemeName = it
+                isSettingsMode = false 
+            },
             onNewScheme = onNewScheme,
             onDeleteScheme = onDeleteScheme,
+            onRenameScheme = { old, new ->
+                onSchemeChanged(new, allSchemes.find { it.name == old }!!.jsonContent.toNode())
+                onDeleteScheme(allSchemes.find { it.name == old }!!)
+                currentSchemeName = new
+            },
+            editingTree = rootNode,
+            onImport = { 
+                onSchemeChanged(currentSchemeName, it)
+                rootNode = it
+                isSettingsMode = false
+            },
+            onClose = { isSettingsMode = false }
+        )
+    } else if (isEditMode) {
+        TreeEditor(
+            currentSchemeName = currentSchemeName,
+            editingTree = rootNode,
             onSave = { 
+                rootNode = it
                 onSchemeChanged(currentSchemeName, it)
                 isEditMode = false
             },
+            onOpenSettings = { isSettingsMode = true },
             onClose = { isEditMode = false }
         )
     } else if (navigationStack.isNotEmpty()) {
@@ -191,7 +214,7 @@ fun KnowledgeApp(
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
-                                        Icons.Default.ArrowBackIosNew,
+                                        Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "返回",
                                         modifier = Modifier.size(24.dp),
                                         tint = MaterialTheme.colorScheme.secondary
@@ -291,23 +314,15 @@ fun EndPageContent(node: KnowledgeNode) {
 @Composable
 fun TreeEditor(
     currentSchemeName: String,
-    allSchemes: List<KnowledgeScheme>,
-    onSchemeSwitch: (String) -> Unit,
-    onNewScheme: (String) -> Unit,
-    onDeleteScheme: (KnowledgeScheme) -> Unit,
+    editingTree: KnowledgeNode,
     onSave: (KnowledgeNode) -> Unit,
+    onOpenSettings: () -> Unit,
     onClose: () -> Unit
 ) {
-    val currentScheme = allSchemes.find { it.name == currentSchemeName } ?: allSchemes.first()
-    var editingTree by remember(currentSchemeName) { mutableStateOf(currentScheme.jsonContent.toNode()) }
+    var currentEditingTree by remember(editingTree) { mutableStateOf(editingTree) }
     var showExitConfirm by remember { mutableStateOf(false) }
-    var showImportDialog by remember { mutableStateOf(false) }
-    var importText by remember { mutableStateOf("") }
     
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val clipboardManager = remember { context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager }
-
-    val hasChanges = editingTree.toJson() != currentScheme.jsonContent
+    val hasChanges = currentEditingTree.toJson() != editingTree.toJson()
 
     if (showExitConfirm) {
         AlertDialog(
@@ -323,7 +338,77 @@ fun TreeEditor(
         )
     }
 
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { 
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onOpenSettings() }
+                    ) {
+                        Text(currentSchemeName, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Default.Settings, "设置", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        if (hasChanges) showExitConfirm = true else onClose()
+                    }) { Icon(Icons.Default.Close, "取消") }
+                },
+                actions = {
+                    if (hasChanges) {
+                        TextButton(
+                            onClick = { onSave(currentEditingTree) }
+                        ) {
+                            Text("保存更改", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    } else {
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.Default.Check, "完成", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item { Spacer(modifier = Modifier.height(8.dp)) }
+            
+            renderEditNodes(
+                node = currentEditingTree,
+                level = 0,
+                onUpdate = { currentEditingTree = it }
+            )
+            
+            item { Spacer(modifier = Modifier.height(80.dp)) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsPage(
+    currentSchemeName: String,
+    allSchemes: List<KnowledgeScheme>,
+    onSchemeSwitch: (String) -> Unit,
+    onNewScheme: (String) -> Unit,
+    onDeleteScheme: (KnowledgeScheme) -> Unit,
+    onRenameScheme: (String, String) -> Unit,
+    editingTree: KnowledgeNode,
+    onImport: (KnowledgeNode) -> Unit,
+    onClose: () -> Unit
+) {
+    var showImportDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = remember { context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager }
+
     if (showImportDialog) {
+        var importText by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showImportDialog = false },
             title = { Text("导入方案 (JSON)") },
@@ -339,16 +424,29 @@ fun TreeEditor(
             confirmButton = {
                 TextButton(onClick = {
                     try {
-                        editingTree = importText.toNode()
+                        onImport(importText.toNode())
                         showImportDialog = false
-                        importText = ""
-                    } catch (e: Exception) {
-                        // 简单提示
-                    }
+                    } catch (e: Exception) {}
                 }) { Text("导入") }
+            }
+        )
+    }
+
+    if (showRenameDialog) {
+        var newName by remember { mutableStateOf(currentSchemeName) }
+        AlertDialog(
+            onDismissRequest = { showRenameDialog = false },
+            title = { Text("重命名方案") },
+            text = {
+                OutlinedTextField(value = newName, onValueChange = { newName = it }, singleLine = true)
             },
-            dismissButton = {
-                TextButton(onClick = { showImportDialog = false }) { Text("取消") }
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newName.isNotBlank() && newName != currentSchemeName) {
+                        onRenameScheme(currentSchemeName, newName)
+                    }
+                    showRenameDialog = false
+                }) { Text("确定") }
             }
         )
     }
@@ -356,119 +454,122 @@ fun TreeEditor(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("编辑方案", fontSize = 18.sp) },
+                title = { Text("设置", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        if (hasChanges) showExitConfirm = true else onClose()
-                    }) { Icon(Icons.Default.Close, "取消") }
-                },
-                actions = {
-                    TextButton(
-                        onClick = { onSave(editingTree) },
-                        enabled = hasChanges
-                    ) {
-                        Text("保存当前", fontWeight = FontWeight.Bold, color = if(hasChanges) MaterialTheme.colorScheme.primary else Color.Gray)
-                    }
+                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
                 }
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
         ) {
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("方案管理", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-                
-                // 方案选择器
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            Text("方案切换与管理", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 方案选择
+            var expanded by remember { mutableStateOf(false) }
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { expanded = true }, 
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("当前方案:", fontSize = 12.sp, modifier = Modifier.width(60.dp))
-                            var expanded by remember { mutableStateOf(false) }
-                            Box {
-                                TextButton(onClick = { expanded = true }) {
-                                    Text(currentSchemeName, fontWeight = FontWeight.Bold)
-                                    Icon(Icons.Default.ArrowDropDown, null)
-                                }
-                                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                    allSchemes.forEach { scheme ->
-                                        DropdownMenuItem(
-                                            text = { Text(scheme.name) },
-                                            onClick = {
-                                                onSchemeSwitch(scheme.name)
-                                                expanded = false
-                                            }
-                                        )
-                                    }
-                                    HorizontalDivider()
-                                    DropdownMenuItem(
-                                        text = { Text("+ 新建方案", color = MaterialTheme.colorScheme.primary) },
-                                        onClick = {
-                                            onNewScheme("新方案 ${allSchemes.size + 1}")
-                                            expanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                        
-                        Row(modifier = Modifier.padding(top = 8.dp)) {
-                            OutlinedButton(
-                                onClick = {
-                                    val jsonStr = editingTree.toJson()
-                                    val clip = android.content.ClipData.newPlainText("Knowledge Scheme", jsonStr)
-                                    clipboardManager.setPrimaryClip(clip)
-                                },
-                                modifier = Modifier.weight(1f).height(36.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("导出 JSON", fontSize = 11.sp)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            OutlinedButton(
-                                onClick = { showImportDialog = true },
-                                modifier = Modifier.weight(1f).height(36.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Icon(Icons.Default.ContentPaste, null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("导入 JSON", fontSize = 11.sp)
-                            }
-                            if (allSchemes.size > 1) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                IconButton(
-                                    onClick = { onDeleteScheme(currentScheme) },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
+                    Text("当前: $currentSchemeName")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(Icons.Default.ArrowDropDown, null)
+                }
+                DropdownMenu(
+                    expanded = expanded, 
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier.fillMaxWidth(0.8f)
+                ) {
+                    allSchemes.forEach { scheme ->
+                        DropdownMenuItem(
+                            text = { Text(scheme.name) }, 
+                            onClick = { onSchemeSwitch(scheme.name); expanded = false },
+                            leadingIcon = { Icon(Icons.Default.Book, null, modifier = Modifier.size(18.dp)) }
+                        )
                     }
                 }
             }
-            
-            item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), thickness = 0.5.dp)
-                Text("结构编辑: ${editingTree.title}", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                OutlinedButton(onClick = { onNewScheme("新方案 ${allSchemes.size + 1}") }) { 
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                    Text(" 新建") 
+                }
+                OutlinedButton(onClick = { showRenameDialog = true }) { 
+                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
+                    Text(" 重命名") 
+                }
+                if (allSchemes.size > 1) {
+                    OutlinedButton(
+                        onClick = { 
+                            onDeleteScheme(allSchemes.find { it.name == currentSchemeName }!!)
+                            onClose()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)
+                    ) { 
+                        Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
+                        Text(" 删除") 
+                    }
+                }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("数据导入导出", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(12.dp))
             
-            renderEditNodes(
-                node = editingTree,
-                level = 0,
-                onUpdate = { editingTree = it }
-            )
-            
-            item { Spacer(modifier = Modifier.height(80.dp)) }
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                OutlinedButton(onClick = {
+                    val clip = android.content.ClipData.newPlainText("JSON", editingTree.toJson())
+                    clipboardManager.setPrimaryClip(clip)
+                }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
+                    Text(" 复制 JSON")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(onClick = { showImportDialog = true }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.ContentPaste, null, modifier = Modifier.size(16.dp))
+                    Text(" 粘贴 JSON")
+                }
+            }
+
+            OutlinedButton(
+                onClick = {
+                    val clip = android.content.ClipData.newPlainText("CSV", editingTree.toCsv())
+                    clipboardManager.setPrimaryClip(clip)
+                }, 
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            ) {
+                Icon(Icons.Default.TableChart, null, modifier = Modifier.size(16.dp))
+                Text(" 复制 CSV (Excel可用)")
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text("关于软件", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(12.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("状态知识查询", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                    Text("极简主义 · 状态导向 · 知识树", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("版本: 1.0.0", fontSize = 12.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("一款基于树状结构的极简状态管理与知识查询工具。旨在帮助用户通过加权 Tile 布局直观地梳理和查询复杂的状态路径。", fontSize = 14.sp)
+                }
+            }
         }
     }
 }
@@ -483,8 +584,7 @@ fun LazyListScope.renderEditNodes(
             NodeEditItem(
                 node = node,
                 level = level,
-                onChanged = { onUpdate(it) },
-                onDelete = { /* 在上级处理 */ }
+                onChanged = { onUpdate(it) }
             )
         }
     }
@@ -548,8 +648,7 @@ fun LazyListScope.renderEditNodes(
 fun NodeEditItem(
     node: KnowledgeNode,
     level: Int,
-    onChanged: (KnowledgeNode) -> Unit,
-    onDelete: () -> Unit
+    onChanged: (KnowledgeNode) -> Unit
 ) {
     // 根据层级改变卡片色调，易于辨别，并增加侧边线条标识层级
     val backgroundColor = if (level % 2 == 0) Color(0xFFFDFDFD) else Color.White

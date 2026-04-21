@@ -59,3 +59,16 @@ private val json = Json {
 
 fun KnowledgeNode.toJson(): String = json.encodeToString(this)
 fun String.toNode(): KnowledgeNode = json.decodeFromString(this)
+
+fun KnowledgeNode.toCsv(): String {
+    val sb = StringBuilder()
+    // CSV Header
+    sb.append("层级,ID,标题,权重,是否终点,内容\n")
+    fun traverse(node: KnowledgeNode, level: Int) {
+        val escapedContent = node.content.replace("\"", "\"\"")
+        sb.append("${level},${node.id},${node.title},${node.weight.toInt()},${if (node.isEndPage) "是" else "否"},\"$escapedContent\"\n")
+        node.children.forEach { traverse(it, level + 1) }
+    }
+    traverse(this, 0)
+    return sb.toString()
+}
