@@ -117,13 +117,16 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
     fun switchScheme(name: String, allSchemes: List<KnowledgeScheme>) {
         val scheme = allSchemes.find { it.name == name } ?: return
         val rootNode = scheme.jsonContent.toNode()
+        
+        // 关键修复 1：先重置导航栈，确保栈中是新方案的节点
+        resetStack(rootNode)
+        
         _uiState.value = KnowledgeUiState.Success(
             currentSchemeName = name,
             rootNode = rootNode
         )
-        resetStack(rootNode)
         
-        // 关键修复：切换方案时更新时间戳，确保下次启动时能正确恢复
+        // 关键修复 2：切换方案时更新时间戳，确保下次启动时能正确恢复
         viewModelScope.launch {
             dao.insertScheme(scheme.copy(lastModified = System.currentTimeMillis()))
         }
@@ -177,7 +180,11 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val newNode = KnowledgeNode(id = UUID.randomUUID().toString(), title = name)
             dao.insertScheme(KnowledgeScheme(name, newNode.toJson()))
-            // 创建后立即切换
+            
+            // 修复 1：先重置导航栈
+            resetStack(newNode)
+            
+            // 修复 2：创建后立即切换 UI 状态
             _uiState.value = KnowledgeUiState.Success(name, newNode)
         }
     }
@@ -189,7 +196,10 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
             dao.deleteSchemeByName(oldName)
             val newScheme = KnowledgeScheme(newName, jsonContent)
             dao.insertScheme(newScheme)
-            _uiState.value = KnowledgeUiState.Success(newName, jsonContent.toNode())
+            val newNode = jsonContent.toNode()
+            _uiState.value = KnowledgeUiState.Success(newName, newNode)
+            // 修复：重命名后也同步下导航栈，确保根节点引用正确
+            syncNavigationStack(newNode)
         }
     }
 }

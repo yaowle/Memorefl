@@ -8,6 +8,21 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
+enum class NodeType {
+    CATEGORY, // 普通分类目录
+    NOTE,     // 便签页（原尾页）
+    CALENDAR  // 日历页
+}
+
+@Serializable
+data class CalendarEvent(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val time: String, // 格式 "HH:mm"
+    val title: String,
+    val isDone: Boolean = false
+)
+
+@Serializable
 data class KnowledgeNode(
     val id: String,
     val title: String,
@@ -15,7 +30,7 @@ data class KnowledgeNode(
     val children: List<KnowledgeNode> = emptyList(),
     val isDefault: Boolean = false,
     val limitDisabled: Boolean = false,
-    val isEndPage: Boolean = false,
+    val nodeType: NodeType = NodeType.CATEGORY, // 使用枚举代替 isEndPage
     val content: String = ""
 )
 
@@ -84,3 +99,15 @@ fun KnowledgeNode.toJson(pretty: Boolean = false): String =
     if (pretty) exportJson.encodeToString(this) else dbJson.encodeToString(this)
 
 fun String.toNode(): KnowledgeNode = dbJson.decodeFromString(this)
+
+// 日历数据转换扩展
+fun KnowledgeNode.toCalendarEvents(): List<CalendarEvent> {
+    if (nodeType != NodeType.CALENDAR || content.isBlank()) return emptyList()
+    return try {
+        dbJson.decodeFromString<List<CalendarEvent>>(content)
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+fun List<CalendarEvent>.toJsonString(): String = dbJson.encodeToString(this)

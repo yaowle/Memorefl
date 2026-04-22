@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
@@ -45,6 +47,9 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.window.Dialog
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -209,13 +214,14 @@ fun KnowledgeApp(
                     }
 
                     Box(modifier = Modifier.weight(1f)) {
-                        if (currentNode.isEndPage) {
-                            EndPageContent(currentNode)
+                        if (currentNode.nodeType != NodeType.CATEGORY) {
+                            FunctionPageContent(currentNode, onNodeUpdated)
                         } else {
                             WeightedTileLayout(
                                 nodes = currentNode.children,
+                                isRootLevel = navigationStack.size <= 1,
                                 onNodeClick = { node ->
-                                    if (node.children.isNotEmpty() || node.isEndPage) {
+                                    if (node.children.isNotEmpty() || node.nodeType != NodeType.CATEGORY) {
                                         onPushNode(node)
                                     }
                                 }
@@ -238,7 +244,7 @@ fun findDefaultNode(node: KnowledgeNode): KnowledgeNode? {
 }
 
 @Composable
-fun EndPageContent(node: KnowledgeNode) {
+fun FunctionPageContent(node: KnowledgeNode, onNodeUpdated: (KnowledgeNode) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -251,14 +257,191 @@ fun EndPageContent(node: KnowledgeNode) {
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(bottom = 24.dp)
         )
-        Text(
-            text = node.content.ifEmpty { "暂无内容" },
-            style = MaterialTheme.typography.bodyLarge.copy(
-                lineHeight = 28.sp,
-                fontSize = 18.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
-            )
+        
+        when (node.nodeType) {
+            NodeType.NOTE -> {
+                Text(
+                    text = node.content.ifEmpty { "暂无便签内容" },
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        lineHeight = 28.sp,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
+                    )
+                )
+            }
+            NodeType.CALENDAR -> {
+                CalendarPageView(node, onNodeUpdated)
+            }
+            else -> {}
+        }
+    }
+}
+
+@Composable
+fun CalendarPageView(node: KnowledgeNode, onNodeUpdated: (KnowledgeNode) -> Unit) {
+    val events = remember(node.content) { node.toCalendarEvents() }
+    val currentTimeStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+    
+    // 查找当前和下一项
+    val currentOrNext = remember(events, currentTimeStr) {
+        val sorted = events.sortedBy { it.time }
+        val next = sorted.find { it.time >= currentTimeStr && !it.isDone }
+        val current = sorted.lastOrNull { it.time <= currentTimeStr && !it.isDone }
+        Pair(current, next)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // 当前时间显示
+        val currentTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        val currentDate = java.text.SimpleDateFormat("MM月dd日 EEEE", java.util.Locale.getDefault()).format(java.util.Date())
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = currentDate, style = MaterialTheme.typography.titleMedium)
+                    Text(text = currentTime, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                }
+                Icon(Icons.Default.Schedule, null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        // 待办事项部分
+        Text("日程摘要", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        
+        TodoItemView(
+            label = "进行中", 
+            content = currentOrNext.first?.title ?: "暂无进行中事项", 
+            time = currentOrNext.first?.time,
+            isCurrent = true
         )
+        TodoItemView(
+            label = "下一项", 
+            content = currentOrNext.second?.title ?: "今日已无后续安排", 
+            time = currentOrNext.second?.time,
+            isCurrent = false
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        var showFullCalendar by remember { mutableStateOf(false) }
+        if (showFullCalendar) {
+            FullCalendarDialog(
+                node = node,
+                events = events, 
+                onChanged = onNodeUpdated,
+                onClose = { showFullCalendar = false }
+            )
+        }
+
+        OutlinedButton(
+            onClick = { showFullCalendar = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.CalendarToday, null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("查看完整日程表 (${events.size})")
+        }
+    }
+}
+
+@Composable
+fun FullCalendarDialog(
+    node: KnowledgeNode,
+    events: List<CalendarEvent>, 
+    onChanged: (KnowledgeNode) -> Unit,
+    onClose: () -> Unit
+) {
+    Dialog(onDismissRequest = onClose) {
+        Card(
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.8f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("今日日程", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = onClose) { Icon(Icons.Default.Close, null) }
+                }
+                
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                
+                if (events.isEmpty()) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text("暂无日程安排", color = Color.Gray)
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(events.sortedBy { it.time }) { event ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = event.time,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.width(60.dp)
+                                )
+                                Text(
+                                    text = event.title,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (event.isDone) {
+                                    Icon(Icons.Default.CheckCircle, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
+                                } else {
+                                    IconButton(
+                                        onClick = {
+                                            val updatedEvents = events.map { e -> if (e.id == event.id) e.copy(isDone = true) else e }
+                                            onChanged(node.copy(content = updatedEvents.toJsonString()))
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Default.RadioButtonUnchecked, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                            }
+                            HorizontalDivider(modifier = Modifier.alpha(0.5f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TodoItemView(label: String, content: String, time: String? = null, isCurrent: Boolean) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isCurrent) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    text = label, 
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Gray
+                )
+                if (time != null) {
+                    Text(text = time, style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = content, style = MaterialTheme.typography.bodyLarge)
+        }
     }
 }
 
@@ -761,7 +944,7 @@ fun NodeEditItem(
                 }
 
                 // 核心改动：将添加按钮整合进卡片内
-                val canAdd = !node.isEndPage && (node.limitDisabled || (node.children.size < 3))
+                val canAdd = node.nodeType == NodeType.CATEGORY && (node.limitDisabled || (node.children.size < 3))
                 if (canAdd) {
                     TextButton(
                         onClick = {
@@ -897,22 +1080,26 @@ fun NodeEditItem(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (!isCompact) {
-                        Text("尾页", fontSize = 10.sp, color = if(node.isEndPage) MaterialTheme.colorScheme.primary else Color.Gray)
+                        Text(
+                            text = if (node.nodeType == NodeType.CATEGORY) "设为功能页" else "功能页已开启",
+                            fontSize = 10.sp,
+                            color = if (node.nodeType != NodeType.CATEGORY) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
                     }
                     Switch(
-                        checked = node.isEndPage,
-                        onCheckedChange = {
+                        checked = node.nodeType != NodeType.CATEGORY,
+                        onCheckedChange = { isFunctionPage ->
                             onChanged(node.copy(
-                                isEndPage = it,
-                                children = if(it) emptyList() else node.children,
-                                content = if(!it) "" else node.content
+                                nodeType = if (isFunctionPage) NodeType.NOTE else NodeType.CATEGORY,
+                                children = if (isFunctionPage) emptyList() else node.children,
+                                content = if (!isFunctionPage) "" else node.content
                             ))
                         },
                         modifier = Modifier.scale(0.6f)
                     )
                 }
 
-                if (!node.isEndPage) {
+                if (node.nodeType == NodeType.CATEGORY) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!isCompact) {
                             Text("解除限制", fontSize = 10.sp, color = if(node.limitDisabled) MaterialTheme.colorScheme.primary else Color.Gray)
@@ -926,16 +1113,89 @@ fun NodeEditItem(
                 }
             }
 
-            if (node.isEndPage) {
+            // 功能选择与内容编辑区
+            if (node.nodeType != NodeType.CATEGORY) {
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = localContent,
-                    onValueChange = { localContent = it },
+                
+                // 功能类型选择 (便签/日历)
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 20.sp),
-                    label = { Text("详细内容 (支持多行)", fontSize = 10.sp) },
-                    minLines = 3
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = node.nodeType == NodeType.NOTE,
+                        onClick = { onChanged(node.copy(nodeType = NodeType.NOTE)) },
+                        label = { Text("便签", fontSize = 11.sp) },
+                        leadingIcon = if (node.nodeType == NodeType.NOTE) {
+                            { Icon(Icons.Default.Note, null, modifier = Modifier.size(14.dp)) }
+                        } else null
+                    )
+                    FilterChip(
+                        selected = node.nodeType == NodeType.CALENDAR,
+                        onClick = { onChanged(node.copy(nodeType = NodeType.CALENDAR)) },
+                        label = { Text("日历", fontSize = 11.sp) },
+                        leadingIcon = if (node.nodeType == NodeType.CALENDAR) {
+                            { Icon(Icons.Default.CalendarMonth, null, modifier = Modifier.size(14.dp)) }
+                        } else null
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                when (node.nodeType) {
+                    NodeType.NOTE -> {
+                        OutlinedTextField(
+                            value = localContent,
+                            onValueChange = { localContent = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 20.sp),
+                            label = { Text("便签内容", fontSize = 10.sp) },
+                            minLines = 3
+                        )
+                    }
+                    NodeType.CALENDAR -> {
+                        var showCalendarEditor by remember { mutableStateOf(false) }
+                        val events = remember(node.content) { node.toCalendarEvents() }
+
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Event, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("日历功能已启用", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Text("包含 ${events.size} 条日程安排。", fontSize = 11.sp, color = Color.Gray)
+                                
+                                TextButton(
+                                    onClick = { showCalendarEditor = true },
+                                    modifier = Modifier.align(Alignment.End)
+                                ) {
+                                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("编辑日程内容", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        if (showCalendarEditor) {
+                            CalendarEditorDialog(
+                                initialEvents = events,
+                                onSave = { updatedEvents ->
+                                    onChanged(node.copy(content = updatedEvents.toJsonString()))
+                                    showCalendarEditor = false
+                                },
+                                onDismiss = { showCalendarEditor = false }
+                            )
+                        }
+                    }
+                    else -> {}
+                }
             }
         }
     }
@@ -943,7 +1203,162 @@ fun NodeEditItem(
 
 
 @Composable
-fun WeightedTileLayout(nodes: List<KnowledgeNode>, onNodeClick: (KnowledgeNode) -> Unit) {
+fun CalendarEditorDialog(
+    initialEvents: List<CalendarEvent>,
+    onSave: (List<CalendarEvent>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var events by remember { mutableStateOf(initialEvents) }
+    
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(0.9f),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("日程编辑器", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(events) { event ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            var time by remember { mutableStateOf(event.time) }
+                            var title by remember { mutableStateOf(event.title) }
+                            
+                            OutlinedTextField(
+                                value = time,
+                                onValueChange = { 
+                                    time = it
+                                    events = events.map { e -> if (e.id == event.id) e.copy(time = it) else e }
+                                },
+                                modifier = Modifier.width(80.dp),
+                                label = { Text("时间") },
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            OutlinedTextField(
+                                value = title,
+                                onValueChange = { 
+                                    title = it
+                                    events = events.map { e -> if (e.id == event.id) e.copy(title = it) else e }
+                                },
+                                modifier = Modifier.weight(1f),
+                                label = { Text("事项") },
+                                singleLine = true
+                            )
+                            IconButton(onClick = { events = events.filter { it.id != event.id } }) {
+                                Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f))
+                            }
+                        }
+                    }
+                    
+                    item {
+                        TextButton(
+                            onClick = { 
+                                events = events + CalendarEvent(time = "08:00", title = "新事项")
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Add, null)
+                            Text("添加新日程")
+                        }
+                    }
+                }
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    Button(onClick = { onSave(events) }) { Text("确认保存") }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun NodeTileContent(node: KnowledgeNode, weight: Float) {
+    Column(
+        modifier = Modifier.padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = node.title,
+            style = if (weight > 0.3f) 
+                MaterialTheme.typography.headlineMedium.copy(fontSize = 28.sp) 
+                else MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+            textAlign = TextAlign.Center,
+            letterSpacing = 1.sp
+        )
+
+        if (node.nodeType == NodeType.CALENDAR) {
+            val events = remember(node.content) { node.toCalendarEvents() }
+            val currentTimeStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+            val activeEvents = events.filter { !it.isDone }.sortedBy { it.time }
+            // 优先显示即将到来的，如果没有则显示第一个未完成的
+            val nextEvent = activeEvents.find { it.time >= currentTimeStr } ?: activeEvents.firstOrNull()
+            
+            if (nextEvent != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Event,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "${nextEvent.time} ${nextEvent.title}",
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            } else if (events.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "今日任务已全部完成 ✓",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                )
+            }
+        } else if (node.nodeType == NodeType.NOTE && node.content.isNotBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = node.content,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                maxLines = if (weight > 0.3f) 3 else 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun WeightedTileLayout(
+    nodes: List<KnowledgeNode>, 
+    isRootLevel: Boolean = false,
+    onNodeClick: (KnowledgeNode) -> Unit
+) {
     if (nodes.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
@@ -963,14 +1378,33 @@ fun WeightedTileLayout(nodes: List<KnowledgeNode>, onNodeClick: (KnowledgeNode) 
     )
 
     val hasHeavyNode = nodes.any { it.weight > 1f }
-    val displayNodes = if (hasHeavyNode) {
-        val heavyNodes = nodes.filter { it.weight > 1f }
-        val lightNodes = nodes.filter { it.weight <= 1f }
-        if (lightNodes.isNotEmpty()) {
-            val minWeight = if (heavyNodes.isNotEmpty()) heavyNodes.minOf { it.weight } else 1f
-            heavyNodes + KnowledgeNode("others", "其他", weight = minWeight, children = lightNodes)
-        } else heavyNodes
-    } else nodes
+    
+    // 只有在非根层级、存在高权重节点、且总项数 >= 4 时，才执行“其他”合并逻辑
+    val shouldMerge = !isRootLevel && hasHeavyNode && nodes.size >= 4
+
+    val displayNodes = if (shouldMerge) {
+        // 按权重降序排序
+        val sortedNodes = nodes.sortedByDescending { it.weight }
+        
+        // 前两个最高权重的节点（必须大于 1f 才算“高权重项”）
+        val topNodes = sortedNodes.filter { it.weight > 1f }.take(2)
+        
+        // 剩余所有节点
+        val remainingNodes = sortedNodes.filter { it !in topNodes }
+        
+        if (remainingNodes.isNotEmpty()) {
+            topNodes + KnowledgeNode(
+                id = "others", 
+                title = "其他", 
+                weight = 1f, 
+                children = remainingNodes
+            )
+        } else {
+            topNodes
+        }
+    } else {
+        nodes
+    }
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -988,16 +1422,7 @@ fun WeightedTileLayout(nodes: List<KnowledgeNode>, onNodeClick: (KnowledgeNode) 
                     .clickable { onNodeClick(node) },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = node.title,
-                    style = if (weight > 0.3f) 
-                        MaterialTheme.typography.headlineMedium.copy(fontSize = 32.sp) 
-                        else MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 1.sp
-                )
+                NodeTileContent(node, weight)
             }
         }
     }
