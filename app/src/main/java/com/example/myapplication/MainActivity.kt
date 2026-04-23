@@ -85,6 +85,10 @@ class MainActivity : ComponentActivity() {
                             onNewScheme = { viewModel.createNewScheme(it) },
                             onRenameScheme = { old, new -> 
                                 viewModel.renameScheme(old, new, state.rootNode.toJson()) 
+                            },
+                            sharedCalendarEvents = state.sharedCalendarEvents,
+                            onUpdateSharedCalendar = { events ->
+                                viewModel.updateSharedCalendar(state.currentSchemeName, events)
                             }
                         )
                     }
@@ -106,7 +110,9 @@ fun KnowledgeApp(
     onSchemeSwitch: (String) -> Unit,
     onDeleteScheme: (KnowledgeScheme) -> Unit,
     onNewScheme: (String) -> Unit,
-    onRenameScheme: (String, String) -> Unit
+    onRenameScheme: (String, String) -> Unit,
+    sharedCalendarEvents: List<CalendarEvent>,
+    onUpdateSharedCalendar: (List<CalendarEvent>) -> Unit
 ) {
     var isEditMode by remember { mutableStateOf(false) }
     var isSettingsMode by remember { mutableStateOf(false) }
@@ -136,10 +142,12 @@ fun KnowledgeApp(
         TreeEditor(
             currentSchemeName = currentSchemeName,
             editingTree = rootNode,
+            sharedCalendarEvents = sharedCalendarEvents,
             onSave = { 
                 onNodeUpdated(it)
                 isEditMode = false
             },
+            onUpdateSharedCalendar = onUpdateSharedCalendar,
             onOpenSettings = { isSettingsMode = true },
             onClose = { isEditMode = false }
         )
@@ -215,11 +223,17 @@ fun KnowledgeApp(
 
                     Box(modifier = Modifier.weight(1f)) {
                         if (currentNode.nodeType != NodeType.CATEGORY) {
-                            FunctionPageContent(currentNode, onNodeUpdated)
+                            FunctionPageContent(
+                                node = currentNode, 
+                                sharedEvents = sharedCalendarEvents,
+                                onNodeUpdated = onNodeUpdated,
+                                onUpdateSharedCalendar = onUpdateSharedCalendar
+                            )
                         } else {
                             WeightedTileLayout(
                                 nodes = currentNode.children,
                                 isRootLevel = navigationStack.size <= 1,
+                                sharedEvents = sharedCalendarEvents,
                                 onNodeClick = { node ->
                                     if (node.children.isNotEmpty() || node.nodeType != NodeType.CATEGORY) {
                                         onPushNode(node)
@@ -244,7 +258,12 @@ fun findDefaultNode(node: KnowledgeNode): KnowledgeNode? {
 }
 
 @Composable
-fun FunctionPageContent(node: KnowledgeNode, onNodeUpdated: (KnowledgeNode) -> Unit) {
+fun FunctionPageContent(
+    node: KnowledgeNode, 
+    sharedEvents: List<CalendarEvent>,
+    onNodeUpdated: (KnowledgeNode) -> Unit,
+    onUpdateSharedCalendar: (List<CalendarEvent>) -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -270,7 +289,23 @@ fun FunctionPageContent(node: KnowledgeNode, onNodeUpdated: (KnowledgeNode) -> U
                 )
             }
             NodeType.CALENDAR -> {
-                CalendarPageView(node, onNodeUpdated)
+                if (node.sharedCalendarEnabled) {
+                    CalendarPageView(
+                        node = node, 
+                        events = sharedEvents,
+                        onEventsChanged = onUpdateSharedCalendar,
+                        isShared = true
+                    )
+                } else {
+                    CalendarPageView(
+                        node = node, 
+                        events = node.toCalendarEvents(),
+                        onEventsChanged = { updatedEvents ->
+                            onNodeUpdated(node.copy(content = updatedEvents.toJsonString()))
+                        },
+                        isShared = false
+                    )
+                }
             }
             else -> {}
         }
@@ -278,8 +313,12 @@ fun FunctionPageContent(node: KnowledgeNode, onNodeUpdated: (KnowledgeNode) -> U
 }
 
 @Composable
-fun CalendarPageView(node: KnowledgeNode, onNodeUpdated: (KnowledgeNode) -> Unit) {
-    val events = remember(node.content) { node.toCalendarEvents() }
+fun CalendarPageView(
+    node: KnowledgeNode, 
+    events: List<CalendarEvent>,
+    onEventsChanged: (List<CalendarEvent>) -> Unit,
+    isShared: Boolean
+) {
     val currentTimeStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
     
     // 查找当前和下一项
@@ -312,7 +351,23 @@ fun CalendarPageView(node: KnowledgeNode, onNodeUpdated: (KnowledgeNode) -> Unit
         }
 
         // 待办事项部分
-        Text("日程摘要", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("日程摘要", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            if (isShared) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        "全局共享", 
+                        fontSize = 10.sp, 
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
+            }
+        }
         
         TodoItemView(
             label = "进行中", 
@@ -332,9 +387,8 @@ fun CalendarPageView(node: KnowledgeNode, onNodeUpdated: (KnowledgeNode) -> Unit
         var showFullCalendar by remember { mutableStateOf(false) }
         if (showFullCalendar) {
             FullCalendarDialog(
-                node = node,
                 events = events, 
-                onChanged = onNodeUpdated,
+                onChanged = onEventsChanged,
                 onClose = { showFullCalendar = false }
             )
         }
@@ -352,9 +406,8 @@ fun CalendarPageView(node: KnowledgeNode, onNodeUpdated: (KnowledgeNode) -> Unit
 
 @Composable
 fun FullCalendarDialog(
-    node: KnowledgeNode,
     events: List<CalendarEvent>, 
-    onChanged: (KnowledgeNode) -> Unit,
+    onChanged: (List<CalendarEvent>) -> Unit,
     onClose: () -> Unit
 ) {
     Dialog(onDismissRequest = onClose) {
@@ -368,7 +421,7 @@ fun FullCalendarDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("今日日程", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("日程清单", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     IconButton(onClick = onClose) { Icon(Icons.Default.Close, null) }
                 }
                 
@@ -403,7 +456,7 @@ fun FullCalendarDialog(
                                     IconButton(
                                         onClick = {
                                             val updatedEvents = events.map { e -> if (e.id == event.id) e.copy(isDone = true) else e }
-                                            onChanged(node.copy(content = updatedEvents.toJsonString()))
+                                            onChanged(updatedEvents)
                                         },
                                         modifier = Modifier.size(24.dp)
                                     ) {
@@ -450,12 +503,15 @@ fun TodoItemView(label: String, content: String, time: String? = null, isCurrent
 fun TreeEditor(
     currentSchemeName: String,
     editingTree: KnowledgeNode,
+    sharedCalendarEvents: List<CalendarEvent>,
     onSave: (KnowledgeNode) -> Unit,
+    onUpdateSharedCalendar: (List<CalendarEvent>) -> Unit,
     onOpenSettings: () -> Unit,
     onClose: () -> Unit
 ) {
     var currentEditingTree by remember(editingTree) { mutableStateOf(editingTree) }
     var showExitConfirm by remember { mutableStateOf(false) }
+    var showGlobalCalendarEditor by remember { mutableStateOf(false) }
     
     // 性能优化：将树展平，避免递归渲染带来的 LazyColumn 性能问题
     val flatNodes = remember(currentEditingTree) { 
@@ -506,6 +562,9 @@ fun TreeEditor(
                     }) { Icon(Icons.Default.Close, "取消") }
                 },
                 actions = {
+                    IconButton(onClick = { showGlobalCalendarEditor = true }) {
+                        Icon(Icons.Default.CalendarMonth, "全局日历", tint = MaterialTheme.colorScheme.primary)
+                    }
                     if (hasChanges) {
                         TextButton(
                             onClick = { onSave(currentEditingTree) }
@@ -521,6 +580,18 @@ fun TreeEditor(
             )
         }
     ) { padding ->
+        if (showGlobalCalendarEditor) {
+            CalendarEditorDialog(
+                title = "编辑全局共享日历",
+                initialEvents = sharedCalendarEvents,
+                onSave = {
+                    onUpdateSharedCalendar(it)
+                    showGlobalCalendarEditor = false
+                },
+                onDismiss = { showGlobalCalendarEditor = false }
+            )
+        }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1158,33 +1229,65 @@ fun NodeEditItem(
                         var showCalendarEditor by remember { mutableStateOf(false) }
                         val events = remember(node.content) { node.toCalendarEvents() }
 
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Event, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("日历功能已启用", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Checkbox(
+                                        checked = node.sharedCalendarEnabled,
+                                        onCheckedChange = { onChanged(node.copy(sharedCalendarEnabled = it)) },
+                                        modifier = Modifier.scale(0.8f)
+                                    )
+                                    Text("关联全局日历", fontSize = 12.sp, color = if(node.sharedCalendarEnabled) MaterialTheme.colorScheme.primary else Color.Gray)
                                 }
-                                Text("包含 ${events.size} 条日程安排。", fontSize = 11.sp, color = Color.Gray)
                                 
-                                TextButton(
-                                    onClick = { showCalendarEditor = true },
-                                    modifier = Modifier.align(Alignment.End)
-                                ) {
-                                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("编辑日程内容", fontSize = 11.sp)
+                                if (!node.sharedCalendarEnabled) {
+                                    TextButton(
+                                        onClick = { showCalendarEditor = true },
+                                    ) {
+                                        Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("编辑私有日程", fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            if (node.sharedCalendarEnabled) Icons.Default.Public else Icons.Default.Event, 
+                                            null, 
+                                            tint = MaterialTheme.colorScheme.primary, 
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            if (node.sharedCalendarEnabled) "正在使用全局共享日历" else "正在使用私有日程表", 
+                                            fontSize = 12.sp, 
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    if (!node.sharedCalendarEnabled) {
+                                        Text("包含 ${events.size} 条私有日程。", fontSize = 11.sp, color = Color.Gray)
+                                    } else {
+                                        Text("所有关联节点将同步显示同一份日程清单。", fontSize = 11.sp, color = Color.Gray)
+                                    }
                                 }
                             }
                         }
 
                         if (showCalendarEditor) {
                             CalendarEditorDialog(
+                                title = "编辑私有日程",
                                 initialEvents = events,
                                 onSave = { updatedEvents ->
                                     onChanged(node.copy(content = updatedEvents.toJsonString()))
@@ -1204,6 +1307,7 @@ fun NodeEditItem(
 
 @Composable
 fun CalendarEditorDialog(
+    title: String = "日程编辑器",
     initialEvents: List<CalendarEvent>,
     onSave: (List<CalendarEvent>) -> Unit,
     onDismiss: () -> Unit
@@ -1216,7 +1320,7 @@ fun CalendarEditorDialog(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("日程编辑器", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 LazyColumn(modifier = Modifier.weight(1f)) {
@@ -1226,7 +1330,7 @@ fun CalendarEditorDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             var time by remember { mutableStateOf(event.time) }
-                            var title by remember { mutableStateOf(event.title) }
+                            var titleStr by remember { mutableStateOf(event.title) }
                             
                             OutlinedTextField(
                                 value = time,
@@ -1234,20 +1338,22 @@ fun CalendarEditorDialog(
                                     time = it
                                     events = events.map { e -> if (e.id == event.id) e.copy(time = it) else e }
                                 },
-                                modifier = Modifier.width(80.dp),
-                                label = { Text("时间") },
-                                singleLine = true
+                                modifier = Modifier.width(90.dp),
+                                label = { Text("时间", fontSize = 10.sp) },
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             OutlinedTextField(
-                                value = title,
+                                value = titleStr,
                                 onValueChange = { 
-                                    title = it
+                                    titleStr = it
                                     events = events.map { e -> if (e.id == event.id) e.copy(title = it) else e }
                                 },
                                 modifier = Modifier.weight(1f),
-                                label = { Text("事项") },
-                                singleLine = true
+                                label = { Text("事项", fontSize = 10.sp) },
+                                singleLine = true,
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
                             )
                             IconButton(onClick = { events = events.filter { it.id != event.id } }) {
                                 Icon(Icons.Default.Delete, null, tint = Color.Red.copy(alpha = 0.6f))
@@ -1282,7 +1388,7 @@ fun CalendarEditorDialog(
 
 
 @Composable
-fun NodeTileContent(node: KnowledgeNode, weight: Float) {
+fun NodeTileContent(node: KnowledgeNode, weight: Float, sharedEvents: List<CalendarEvent>) {
     Column(
         modifier = Modifier.padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1300,7 +1406,7 @@ fun NodeTileContent(node: KnowledgeNode, weight: Float) {
         )
 
         if (node.nodeType == NodeType.CALENDAR) {
-            val events = remember(node.content) { node.toCalendarEvents() }
+            val events = if (node.sharedCalendarEnabled) sharedEvents else remember(node.content) { node.toCalendarEvents() }
             val currentTimeStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
             val activeEvents = events.filter { !it.isDone }.sortedBy { it.time }
             // 优先显示即将到来的，如果没有则显示第一个未完成的
@@ -1317,7 +1423,7 @@ fun NodeTileContent(node: KnowledgeNode, weight: Float) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Event,
+                            imageVector = if (node.sharedCalendarEnabled) Icons.Default.Public else Icons.Default.Event,
                             contentDescription = null,
                             modifier = Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.primary
@@ -1357,6 +1463,7 @@ fun NodeTileContent(node: KnowledgeNode, weight: Float) {
 fun WeightedTileLayout(
     nodes: List<KnowledgeNode>, 
     isRootLevel: Boolean = false,
+    sharedEvents: List<CalendarEvent> = emptyList(),
     onNodeClick: (KnowledgeNode) -> Unit
 ) {
     if (nodes.isEmpty()) {
@@ -1422,7 +1529,7 @@ fun WeightedTileLayout(
                     .clickable { onNodeClick(node) },
                 contentAlignment = Alignment.Center
             ) {
-                NodeTileContent(node, weight)
+                NodeTileContent(node, weight, sharedEvents)
             }
         }
     }

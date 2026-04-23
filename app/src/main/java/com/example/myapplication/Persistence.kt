@@ -30,14 +30,16 @@ data class KnowledgeNode(
     val children: List<KnowledgeNode> = emptyList(),
     val isDefault: Boolean = false,
     val limitDisabled: Boolean = false,
-    val nodeType: NodeType = NodeType.CATEGORY, // 使用枚举代替 isEndPage
-    val content: String = ""
+    val nodeType: NodeType = NodeType.CATEGORY,
+    val content: String = "",
+    val sharedCalendarEnabled: Boolean = false // 新增：是否关联全局共享日历
 )
 
 @Entity(tableName = "knowledge_schemes")
 data class KnowledgeScheme(
     @PrimaryKey val name: String,
     val jsonContent: String,
+    val sharedCalendarJson: String = "[]", // 新增：每个方案独立的全局共享日历
     val lastModified: Long = System.currentTimeMillis()
 )
 
@@ -62,7 +64,7 @@ interface KnowledgeDao {
     suspend fun getLatestScheme(): KnowledgeScheme?
 }
 
-@Database(entities = [KnowledgeScheme::class], version = 2, exportSchema = false)
+@Database(entities = [KnowledgeScheme::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun knowledgeDao(): KnowledgeDao
 
