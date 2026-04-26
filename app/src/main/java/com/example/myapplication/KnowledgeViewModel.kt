@@ -40,19 +40,10 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
     fun resetStack(rootNode: KnowledgeNode) {
         _navigationStack.clear()
         _navigationStack.add(rootNode)
-        val defaultNode = findDefaultNode(rootNode)
+        val defaultNode = TreeLogic.findDefaultNode(rootNode)
         if (defaultNode != null && defaultNode != rootNode) {
             _navigationStack.add(defaultNode)
         }
-    }
-
-    private fun findDefaultNode(node: KnowledgeNode): KnowledgeNode? {
-        if (node.isDefault) return node
-        for (child in node.children) {
-            val found = findDefaultNode(child)
-            if (found != null) return found
-        }
-        return null
     }
 
     init {
@@ -67,7 +58,10 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
                 if (currentState is KnowledgeUiState.Loading) {
                     // 第一次加载：取最新修改的方案
                     val firstScheme = schemes.first()
-                    val rootNode = firstScheme.jsonContent.toNode()
+                    // 尝试从关系表中加载
+                    val nodes = dao.getNodesForScheme(firstScheme.name)
+                    val rootNode = nodes.toTree() ?: firstScheme.jsonContent.toNode()
+                    
                     val events = try {
                         Json.decodeFromString<List<CalendarEvent>>(firstScheme.sharedCalendarJson)
                     } catch (e: Exception) {
@@ -82,7 +76,9 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
                 } else if (currentState is KnowledgeUiState.Success) {
                     val currentFromDb = schemes.find { it.name == currentState.currentSchemeName }
                     if (currentFromDb != null) {
-                        val newNode = currentFromDb.jsonContent.toNode()
+                        val nodes = dao.getNodesForScheme(currentFromDb.name)
+                        val newNode = nodes.toTree() ?: currentFromDb.jsonContent.toNode()
+                        
                         val newEvents = try {
                             Json.decodeFromString<List<CalendarEvent>>(currentFromDb.sharedCalendarJson)
                         } catch (e: Exception) {
@@ -103,10 +99,7 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
             saveRequestFlow
                 .debounce(500)
                 .collect { (name, node) ->
-                    val scheme = dao.getScheme(name)
-                    if (scheme != null) {
-                        dao.insertScheme(scheme.copy(jsonContent = node.toJson()))
-                    }
+                    dao.updateSchemeTree(name, node)
                 }
         }
 
@@ -149,28 +142,30 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
             )
         )
         dao.insertScheme(KnowledgeScheme("默认方案", defaultRoot.toJson()))
+        dao.updateSchemeTree("默认方案", defaultRoot)
     }
 
     fun switchScheme(name: String, allSchemes: List<KnowledgeScheme>) {
-        val scheme = allSchemes.find { it.name == name } ?: return
-        val rootNode = scheme.jsonContent.toNode()
-        val events = try {
-            Json.decodeFromString<List<CalendarEvent>>(scheme.sharedCalendarJson)
-        } catch (e: Exception) {
-            emptyList<CalendarEvent>()
-        }
-        
-        // 关键修复 1：先重置导航栈，确保栈中是新方案的节点
-        resetStack(rootNode)
-        
-        _uiState.value = KnowledgeUiState.Success(
-            currentSchemeName = name,
-            rootNode = rootNode,
-            sharedCalendarEvents = events
-        )
-        
-        // 关键修复 2：切换方案时更新时间戳，确保下次启动时能正确恢复
         viewModelScope.launch {
+            val scheme = allSchemes.find { it.name == name } ?: return@launch
+            val nodes = dao.getNodesForScheme(name)
+            val rootNode = nodes.toTree() ?: scheme.jsonContent.toNode()
+            val events = try {
+                Json.decodeFromString<List<CalendarEvent>>(scheme.sharedCalendarJson)
+            } catch (e: Exception) {
+                emptyList<CalendarEvent>()
+            }
+            
+            // 关键修复 1：先重置导航栈，确保栈中是新方案的节点
+            resetStack(rootNode)
+            
+            _uiState.value = KnowledgeUiState.Success(
+                currentSchemeName = name,
+                rootNode = rootNode,
+                sharedCalendarEvents = events
+            )
+            
+            // 关键修复 2：切换方案时更新时间戳，确保下次启动时能正确恢复
             dao.insertScheme(scheme.copy(lastModified = System.currentTimeMillis()))
         }
     }
@@ -190,20 +185,11 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
     private fun syncNavigationStack(root: KnowledgeNode) {
         for (i in _navigationStack.indices) {
             val oldNode = _navigationStack[i]
-            val newNode = findNodeById(root, oldNode.id)
+            val newNode = TreeLogic.findNodeById(root, oldNode.id)
             if (newNode != null) {
                 _navigationStack[i] = newNode
             }
         }
-    }
-
-    private fun findNodeById(root: KnowledgeNode, id: String): KnowledgeNode? {
-        if (root.id == id) return root
-        for (child in root.children) {
-            val found = findNodeById(child, id)
-            if (found != null) return found
-        }
-        return null
     }
 
     fun deleteScheme(scheme: KnowledgeScheme) {
@@ -212,7 +198,8 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
             // 删除后尝试获取最新的一个方案
             val latest = dao.getLatestScheme()
             if (latest != null) {
-                val rootNode = latest.jsonContent.toNode()
+                val nodes = dao.getNodesForScheme(latest.name)
+                val rootNode = nodes.toTree() ?: latest.jsonContent.toNode()
                 val events = try {
                     Json.decodeFromString<List<CalendarEvent>>(latest.sharedCalendarJson)
                 } catch (e: Exception) {
@@ -227,15 +214,17 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun createNewScheme(name: String) {
+        createNewSchemeFromNode(name, KnowledgeNode(id = UUID.randomUUID().toString(), title = name))
+    }
+
+    fun createNewSchemeFromNode(name: String, rootNode: KnowledgeNode) {
         viewModelScope.launch {
-            val newNode = KnowledgeNode(id = UUID.randomUUID().toString(), title = name)
-            dao.insertScheme(KnowledgeScheme(name, newNode.toJson()))
+            dao.insertScheme(KnowledgeScheme(name, rootNode.toJson()))
+            dao.updateSchemeTree(name, rootNode)
             
-            // 修复 1：先重置导航栈
-            resetStack(newNode)
-            
-            // 修复 2：创建后立即切换 UI 状态
-            _uiState.value = KnowledgeUiState.Success(name, newNode, emptyList())
+            // 修复：重置导航栈并更新 UI 状态
+            resetStack(rootNode)
+            _uiState.value = KnowledgeUiState.Success(name, rootNode, emptyList())
         }
     }
 
@@ -251,6 +240,8 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
             dao.insertScheme(newScheme)
             
             val newNode = jsonContent.toNode()
+            dao.updateSchemeTree(newName, newNode)
+
             val events = try {
                 Json.decodeFromString<List<CalendarEvent>>(sharedJson)
             } catch (e: Exception) {
@@ -258,7 +249,7 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
             }
             
             _uiState.value = KnowledgeUiState.Success(newName, newNode, events)
-            // 修复：重命名后也同步下导航栈，确保根节点引用正确
+            // 修复：重构后也同步下导航栈，确保根节点引用正确
             syncNavigationStack(newNode)
         }
     }
