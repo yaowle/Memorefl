@@ -29,6 +29,26 @@ data class CalendarEvent(
 )
 
 /**
+ * 便签内容结构化模型：支持文本、图片、待办、文件
+ */
+@Serializable
+sealed class NoteBlock {
+    @Serializable
+    data class Text(val text: String, val isHeading: Boolean = false) : NoteBlock()
+    @Serializable
+    data class Image(val uri: String, val caption: String? = null) : NoteBlock()
+    @Serializable
+    data class Todo(val text: String, val checked: Boolean) : NoteBlock()
+    @Serializable
+    data class File(val uri: String, val fileName: String, val mimeType: String) : NoteBlock()
+}
+
+@Serializable
+data class NoteContent(
+    val blocks: List<NoteBlock> = emptyList()
+)
+
+/**
  * 内存中的节点模型（保持递归结构方便 UI 使用）
  */
 @Serializable
@@ -40,9 +60,19 @@ data class KnowledgeNode(
     val isDefault: Boolean = false,
     val limitDisabled: Boolean = false,
     val nodeType: NodeType = NodeType.CATEGORY,
-    val content: String = "",
+    val content: String = "", // 这里存储序列化后的 JSON (NoteContent 或 List<CalendarEvent>)
     val sharedCalendarEnabled: Boolean = false
 )
+
+/**
+ * ==================================================================================
+ * 🔴 数据库架构变更指南 (给 AI 和开发者的特别提醒):
+ * 1. 如果你修改了下方任何 [Entity] 类的字段（增加、删除、重命名）：
+ *    - 必须前往 [AppDatabase] 类，将 version 增加 1 (例如从 4 改为 5)。
+ *    - 在 autoMigrations 列表中添加一个新的 AutoMigration 项。
+ * 2. 所有的 KnowledgeNode 结构都会被序列化为 JSON 存储在 KnowledgeScheme 中作为备份。
+ * ==================================================================================
+ */
 
 /**
  * 方案实体：存储方案元数据
@@ -50,13 +80,13 @@ data class KnowledgeNode(
 @Entity(tableName = "knowledge_schemes")
 data class KnowledgeScheme(
     @PrimaryKey val name: String,
-    val jsonContent: String, // 暂时保留以兼容旧数据或作为备份
+    val jsonContent: String, // 核心备份：即使 nodes 表结构损坏，也可以通过此字段恢复整个树
     val sharedCalendarJson: String = "[]",
     val lastModified: Long = System.currentTimeMillis()
 )
 
 /**
- * 关系型节点实体：用于高性能局部更新
+ * 关系型节点实体：用于高性能局部查询和更新
  */
 @Entity(
     tableName = "nodes",
@@ -73,7 +103,7 @@ data class KnowledgeScheme(
 data class NodeEntity(
     @PrimaryKey val id: String,
     val schemeName: String,
-    val parentId: String?, // 父节点 ID，根节点为 null
+    val parentId: String?,
     val title: String,
     val weight: Float,
     val nodeType: NodeType,
@@ -81,7 +111,7 @@ data class NodeEntity(
     val isDefault: Boolean,
     val limitDisabled: Boolean,
     val sharedCalendarEnabled: Boolean,
-    val sortOrder: Int // 用于保持子节点顺序
+    val sortOrder: Int
 )
 
 /**
@@ -115,6 +145,12 @@ interface KnowledgeDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNodes(nodes: List<NodeEntity>)
 
+    @Query("SELECT id FROM nodes WHERE schemeName = :schemeName")
+    suspend fun getNodeIdsForScheme(schemeName: String): List<String>
+
+    @Query("DELETE FROM nodes WHERE id IN (:ids)")
+    suspend fun deleteNodesByIds(ids: List<String>)
+
     @Query("DELETE FROM nodes WHERE schemeName = :schemeName")
     suspend fun deleteNodesByScheme(schemeName: String)
     
@@ -124,9 +160,28 @@ interface KnowledgeDao {
     @Transaction
     suspend fun updateSchemeTree(schemeName: String, rootNode: KnowledgeNode) {
         val scheme = getScheme(schemeName) ?: return
-        deleteNodesByScheme(schemeName)
-        insertNodes(rootNode.toEntities(schemeName))
-        insertScheme(scheme.copy(jsonContent = rootNode.toJson(), lastModified = System.currentTimeMillis()))
+        
+        // 1. 获取新树的所有实体
+        val newEntities = rootNode.toEntities(schemeName)
+        val newIds = newEntities.map { it.id }.toSet()
+
+        // 2. 找出需要删除的节点（在 DB 中存在但不在新树中）
+        val oldIds = getNodeIdsForScheme(schemeName)
+        val idsToDelete = oldIds.filter { it !in newIds }
+
+        // 3. 执行增量操作
+        if (idsToDelete.isNotEmpty()) {
+            deleteNodesByIds(idsToDelete)
+        }
+        
+        // Room 的 REPLACE 策略会自动处理 Update 和 Insert
+        insertNodes(newEntities)
+
+        // 4. 更新方案元数据
+        insertScheme(scheme.copy(
+            jsonContent = rootNode.toJson(), 
+            lastModified = System.currentTimeMillis()
+        ))
     }
 }
 
@@ -136,7 +191,11 @@ interface KnowledgeDao {
 @Database(
     entities = [KnowledgeScheme::class, NodeEntity::class], 
     version = 4, 
-    exportSchema = false
+    // 自动迁移配置：当你把 version 改成 5 时，在此处添加 AutoMigration(from = 4, to = 5)
+    autoMigrations = [
+        // AutoMigration (from = 4, to = 5) 
+    ],
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun knowledgeDao(): KnowledgeDao
@@ -151,6 +210,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "knowledge_database"
                 )
+                // 如果自动迁移失败，允许破坏性迁移作为最后的保底（数据会丢失，但程序不崩溃）
+                // 建议在开发阶段开启，发布上线前关闭
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -176,6 +237,42 @@ fun KnowledgeNode.toCalendarEvents(): List<CalendarEvent> {
 }
 
 fun List<CalendarEvent>.toJsonString(): String = dbJson.encodeToString(this)
+
+/**
+ * 将内容解析为结构化便签
+ */
+fun KnowledgeNode.toNoteContent(): NoteContent {
+    if (nodeType != NodeType.NOTE || content.isBlank()) return NoteContent()
+    return try {
+        dbJson.decodeFromString<NoteContent>(content)
+    } catch (e: Exception) {
+        // 兼容旧版本的纯文本数据
+        NoteContent(blocks = listOf(NoteBlock.Text(content)))
+    }
+}
+
+/**
+ * 提取便签内容的纯文本摘要用于预览
+ */
+fun KnowledgeNode.getNotePreview(maxChars: Int = 100): String {
+    val note = this.toNoteContent()
+    if (note.blocks.isEmpty()) return ""
+    
+    val sb = StringBuilder()
+    for (block in note.blocks) {
+        when (block) {
+            is NoteBlock.Text -> sb.append(block.text)
+            is NoteBlock.Todo -> sb.append("[ ] ${block.text}")
+            is NoteBlock.Image -> sb.append("[图片]")
+            is NoteBlock.File -> sb.append("[文件: ${block.fileName}]")
+        }
+        sb.append(" ")
+        if (sb.length > maxChars) break
+    }
+    return sb.toString().trim()
+}
+
+fun NoteContent.toJsonString(): String = dbJson.encodeToString(this)
 
 /**
  * 递归将内存树转换为扁平实体列表

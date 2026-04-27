@@ -18,17 +18,180 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
 import com.example.myapplication.CalendarEvent
 import com.example.myapplication.KnowledgeNode
+import com.example.myapplication.NoteBlock
+import com.example.myapplication.NoteContent
 import com.example.myapplication.NodeType
 import com.example.myapplication.R
+import com.example.myapplication.getNotePreview
 import com.example.myapplication.toCalendarEvents
+import com.example.myapplication.toNoteContent
 import com.example.myapplication.toJsonString
 import java.text.SimpleDateFormat
 import java.util.*
+
+/**
+ * 便签内容完整展示组件（查看器）
+ */
+@Composable
+fun NoteContentViewer(
+    content: NoteContent,
+    onTodoToggled: (Int, Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        if (content.blocks.isEmpty()) {
+            Text(
+                stringResource(R.string.no_note_content),
+                color = MaterialTheme.colorScheme.outline,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+
+        content.blocks.forEachIndexed { index, block ->
+            when (block) {
+                is NoteBlock.Text -> {
+                    if (block.text.isNotBlank()) {
+                        Text(
+                            text = block.text,
+                            style = if (block.isHeading) {
+                                MaterialTheme.typography.headlineSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                            } else {
+                                MaterialTheme.typography.bodyLarge.copy(
+                                    lineHeight = 28.sp,
+                                    fontSize = 18.sp,
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.9f)
+                                )
+                            }
+                        )
+                    }
+                }
+                is NoteBlock.Image -> {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        AsyncImage(
+                            model = block.uri,
+                            contentDescription = block.caption,
+                            modifier = Modifier.fillMaxWidth(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                        )
+                        block.caption?.let {
+                            Text(
+                                text = it,
+                                modifier = Modifier.padding(8.dp),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                }
+                is NoteBlock.Todo -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Checkbox(
+                            checked = block.checked,
+                            onCheckedChange = { onTodoToggled(index, it) }
+                        )
+                        Text(
+                            text = block.text,
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                textDecoration = if (block.checked) TextDecoration.LineThrough else TextDecoration.None,
+                                color = if (block.checked) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onBackground
+                            )
+                        )
+                    }
+                }
+                is NoteBlock.File -> {
+                    // 文件区块预览
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.InsertDriveFile, null, tint = MaterialTheme.colorScheme.secondary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(block.fileName, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 便签页预览组件
+ */
+@Composable
+fun NotePagePreview(
+    node: KnowledgeNode,
+    onOpenEditor: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        onClick = onOpenEditor
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            val previewText = remember(node.content) { node.getNotePreview(maxChars = 200) }
+            
+            Text(
+                text = previewText.ifEmpty { stringResource(R.string.no_note_content) },
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    lineHeight = 24.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                ),
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "点击进入详情页编辑",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Default.EditNote,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
 
 /**
  * 功能页内容渲染器
@@ -55,13 +218,17 @@ fun FunctionPageContent(
         
         when (node.nodeType) {
             NodeType.NOTE -> {
-                Text(
-                    text = node.content.ifEmpty { stringResource(R.string.no_note_content) },
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        lineHeight = 28.sp,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f)
-                    )
+                val noteContent = remember(node.content) { node.toNoteContent() }
+                NoteContentViewer(
+                    content = noteContent,
+                    onTodoToggled = { index, checked ->
+                        val newBlocks = noteContent.blocks.toMutableList()
+                        val oldBlock = newBlocks[index]
+                        if (oldBlock is NoteBlock.Todo) {
+                            newBlocks[index] = oldBlock.copy(checked = checked)
+                            onNodeUpdated(node.copy(content = NoteContent(newBlocks).toJsonString()))
+                        }
+                    }
                 )
             }
             NodeType.CALENDAR -> {

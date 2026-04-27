@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.*
@@ -337,14 +338,46 @@ fun NodeEditItem(
 
                 when (node.nodeType) {
                     NodeType.NOTE -> {
-                        OutlinedTextField(
-                            value = localContent,
-                            onValueChange = { localContent = it },
+                        var showDetailEditor by remember { mutableStateOf(false) }
+                        
+                        Card(
+                            onClick = { showDetailEditor = true },
                             modifier = Modifier.fillMaxWidth(),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 20.sp),
-                            label = { Text("便签内容", fontSize = 10.sp) },
-                            minLines = 3
-                        )
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                val previewText = remember(node.content) { node.getNotePreview(maxChars = 100) }
+                                Text(
+                                    text = previewText.ifEmpty { "点击编辑便签内容..." },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (previewText.isEmpty()) Color.Gray else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.EditNote, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("点击进行详细编辑", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+
+                        if (showDetailEditor) {
+                            NoteDetailEditor(
+                                title = node.title,
+                                initialContent = node.toNoteContent(),
+                                onSave = { updatedContent ->
+                                    onChanged(node.copy(content = updatedContent.toJsonString()))
+                                    showDetailEditor = false
+                                },
+                                onDismiss = { showDetailEditor = false }
+                            )
+                        }
                     }
                     NodeType.CALENDAR -> {
                         var showCalendarEditor by remember { mutableStateOf(false) }

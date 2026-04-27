@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.example.myapplication.CalendarEvent
 import com.example.myapplication.KnowledgeNode
 import com.example.myapplication.NodeType
+import com.example.myapplication.getNotePreview
 import com.example.myapplication.toCalendarEvents
 import java.text.SimpleDateFormat
 import java.util.*
@@ -158,16 +159,20 @@ fun NodeTileContent(node: KnowledgeNode, weight: Float, sharedEvents: List<Calen
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                 )
             }
-        } else if (node.nodeType == NodeType.NOTE && node.content.isNotBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = node.content,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                maxLines = if (weight > 0.3f) 3 else 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
+        } else if (node.nodeType == NodeType.NOTE) {
+            val previewText = remember(node.content) { node.getNotePreview() }
+            if (previewText.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = previewText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    maxLines = if (weight > 0.3f) 4 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 16.sp
+                )
+            }
         }
     }
 }

@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +33,8 @@ fun TreeEditor(
     editingTree: KnowledgeNode,
     sharedCalendarEvents: List<CalendarEvent>,
     onSave: (KnowledgeNode) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
     onUpdateSharedCalendar: (List<CalendarEvent>) -> Unit,
     onOpenSettings: () -> Unit,
     onClose: () -> Unit
@@ -38,7 +42,41 @@ fun TreeEditor(
     var currentEditingTree by remember(editingTree) { mutableStateOf(editingTree) }
     var showExitConfirm by remember { mutableStateOf(false) }
     var showGlobalCalendarEditor by remember { mutableStateOf(false) }
-    
+
+    // 本地撤销/重做栈（用于未保存前的实时编辑）
+    val localUndoStack = remember { mutableStateListOf<KnowledgeNode>() }
+    val localRedoStack = remember { mutableStateListOf<KnowledgeNode>() }
+
+    // 辅助函数：更新树并记录历史
+    val updateTreeWithHistory: (KnowledgeNode) -> Unit = { newNode ->
+        if (newNode != currentEditingTree) {
+            localUndoStack.add(currentEditingTree)
+            if (localUndoStack.size > 50) localUndoStack.removeAt(0)
+            localRedoStack.clear()
+            currentEditingTree = newNode
+        }
+    }
+
+    val handleUndo = {
+        if (localUndoStack.isNotEmpty()) {
+            val last = localUndoStack.removeAt(localUndoStack.size - 1)
+            localRedoStack.add(currentEditingTree)
+            currentEditingTree = last
+        } else {
+            onUndo() // 如果本地没得撤销了，尝试调用全局撤销
+        }
+    }
+
+    val handleRedo = {
+        if (localRedoStack.isNotEmpty()) {
+            val next = localRedoStack.removeAt(localRedoStack.size - 1)
+            localUndoStack.add(currentEditingTree)
+            currentEditingTree = next
+        } else {
+            onRedo()
+        }
+    }
+
     val flatNodes = remember(currentEditingTree) { 
         TreeLogic.flattenTree(currentEditingTree) 
     }
@@ -86,6 +124,26 @@ fun TreeEditor(
                     }) { Icon(Icons.Default.Close, "取消") }
                 },
                 actions = {
+                    IconButton(
+                        onClick = handleUndo,
+                        enabled = localUndoStack.isNotEmpty()
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Undo, 
+                            "撤销",
+                            tint = if (localUndoStack.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        )
+                    }
+                    IconButton(
+                        onClick = handleRedo,
+                        enabled = localRedoStack.isNotEmpty()
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Redo, 
+                            "重做",
+                            tint = if (localRedoStack.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        )
+                    }
                     IconButton(onClick = { showGlobalCalendarEditor = true }) {
                         Icon(Icons.Default.CalendarMonth, "全局日历", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -130,7 +188,7 @@ fun TreeEditor(
                     OutlinedButton(
                         onClick = {
                             val newNode = KnowledgeNode(id = UUID.randomUUID().toString(), title = "新分类")
-                            currentEditingTree = currentEditingTree.copy(children = currentEditingTree.children + newNode)
+                            updateTreeWithHistory(currentEditingTree.copy(children = currentEditingTree.children + newNode))
                         },
                         modifier = Modifier.padding(vertical = 8.dp).fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
@@ -147,13 +205,13 @@ fun TreeEditor(
                             collapsedIds = if (collapsedIds.contains(item.node.id)) collapsedIds - item.node.id else collapsedIds + item.node.id 
                         },
                         onChanged = { updatedNode ->
-                            currentEditingTree = TreeLogic.updateNodeInTree(currentEditingTree, updatedNode)
+                            updateTreeWithHistory(TreeLogic.updateNodeInTree(currentEditingTree, updatedNode))
                         },
                         onDelete = {
-                            currentEditingTree = TreeLogic.deleteNodeFromTree(currentEditingTree, item.node.id)
+                            updateTreeWithHistory(TreeLogic.deleteNodeFromTree(currentEditingTree, item.node.id))
                         },
-                        onMoveUp = if (!item.isFirst) { { currentEditingTree = TreeLogic.moveNodeInTree(currentEditingTree, item.node.id, true) } } else null,
-                        onMoveDown = if (!item.isLast) { { currentEditingTree = TreeLogic.moveNodeInTree(currentEditingTree, item.node.id, false) } } else null
+                        onMoveUp = if (!item.isFirst) { { updateTreeWithHistory(TreeLogic.moveNodeInTree(currentEditingTree, item.node.id, true)) } } else null,
+                        onMoveDown = if (!item.isLast) { { updateTreeWithHistory(TreeLogic.moveNodeInTree(currentEditingTree, item.node.id, false)) } } else null
                     )
                 }
             }

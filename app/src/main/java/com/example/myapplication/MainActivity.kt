@@ -59,6 +59,8 @@ class MainActivity : ComponentActivity() {
                             onRenameScheme = { old, new -> 
                                 viewModel.renameScheme(old, new, state.rootNode.toJson()) 
                             },
+                            onUndo = { viewModel.undo() },
+                            onRedo = { viewModel.redo() },
                             sharedCalendarEvents = state.sharedCalendarEvents,
                             onUpdateSharedCalendar = { events ->
                                 viewModel.updateSharedCalendar(state.currentSchemeName, events)
@@ -88,6 +90,8 @@ fun KnowledgeApp(
     onNewScheme: (String) -> Unit,
     onNewSchemeFromNode: (String, KnowledgeNode) -> Unit,
     onRenameScheme: (String, String) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
     sharedCalendarEvents: List<CalendarEvent>,
     onUpdateSharedCalendar: (List<CalendarEvent>) -> Unit
 ) {
@@ -126,6 +130,8 @@ fun KnowledgeApp(
                 onNodeUpdated(it)
                 isEditMode = false
             },
+            onUndo = onUndo,
+            onRedo = onRedo,
             onUpdateSharedCalendar = onUpdateSharedCalendar,
             onOpenSettings = { isSettingsMode = true },
             onClose = { isEditMode = false }
