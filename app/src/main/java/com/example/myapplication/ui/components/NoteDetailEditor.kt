@@ -138,7 +138,7 @@ fun NoteDetailEditor(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(bottom = 120.dp), // 将内容向上推
+                                .padding(bottom = 180.dp), // 进一步向上移动
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
@@ -297,23 +297,25 @@ fun NoteBlockItem(
                         Surface(
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(Uri.parse(block.uri), block.mimeType)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        // 处理无法打开文件的情况（例如没有安装对应应用）
-                                        android.widget.Toast.makeText(context, "无法打开此文件", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                }
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
-                                modifier = Modifier.padding(12.dp),
+                                modifier = Modifier
+                                    .clickable {
+                                        try {
+                                            val uri = Uri.parse(block.uri)
+                                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(uri, block.mimeType)
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            // 使用选择器打开，兼容性更好
+                                            context.startActivity(Intent.createChooser(intent, "打开文件"))
+                                        } catch (e: Exception) {
+                                            android.widget.Toast.makeText(context, "无法打开此文件: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    .padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(

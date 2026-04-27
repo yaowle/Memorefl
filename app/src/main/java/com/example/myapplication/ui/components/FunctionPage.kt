@@ -1,6 +1,9 @@
 package com.example.myapplication.ui.components
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -116,19 +120,36 @@ fun NoteContentViewer(
                     }
                 }
                 is NoteBlock.File -> {
-                    // 文件区块预览
+                    // 文件区块预览 - 增加点击打开功能
+                    val context = LocalContext.current
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.padding(12.dp),
+                            modifier = Modifier
+                                .clickable {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(Uri.parse(block.uri), block.mimeType)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, "打开文件"))
+                                    } catch (e: Exception) {
+                                        android.widget.Toast.makeText(context, "无法打开此文件", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Default.InsertDriveFile, null, tint = MaterialTheme.colorScheme.secondary)
                             Spacer(modifier = Modifier.width(12.dp))
-                            Text(block.fileName, style = MaterialTheme.typography.bodyMedium)
+                            Column {
+                                Text(block.fileName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                Text(block.mimeType, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                            }
                         }
                     }
                 }
