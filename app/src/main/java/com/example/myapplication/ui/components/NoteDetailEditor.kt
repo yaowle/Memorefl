@@ -1,5 +1,6 @@
 package com.example.myapplication.ui.components
 
+import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -135,20 +136,22 @@ fun NoteDetailEditor(
                 ) {
                     if (content.blocks.isEmpty()) {
                         Column(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(bottom = 120.dp), // 将内容向上推
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Icon(
                                 Icons.Default.EditNote,
                                 contentDescription = null,
-                                modifier = Modifier.size(64.dp),
+                                modifier = Modifier.size(80.dp), // 稍微放大图标更美观
                                 tint = Color.LightGray.copy(alpha = 0.5f)
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 "点击上方图标开始创作",
-                                color = Color.Gray,
+                                color = Color.Gray.copy(alpha = 0.8f),
                                 style = MaterialTheme.typography.bodyLarge
                             )
                         }
@@ -290,20 +293,46 @@ fun NoteBlockItem(
                         }
                     }
                     is NoteBlock.File -> {
+                        val context = LocalContext.current
                         Surface(
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(Uri.parse(block.uri), block.mimeType)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        // 处理无法打开文件的情况（例如没有安装对应应用）
+                                        android.widget.Toast.makeText(context, "无法打开此文件", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                         ) {
                             Row(
                                 modifier = Modifier.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.secondary)
+                                Icon(
+                                    Icons.AutoMirrored.Filled.InsertDriveFile,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    Text(block.fileName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                    Text(block.mimeType, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                    Text(
+                                        block.fileName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        block.mimeType,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray
+                                    )
                                 }
                             }
                         }
