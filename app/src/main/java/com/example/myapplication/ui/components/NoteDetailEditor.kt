@@ -4,7 +4,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -30,7 +30,7 @@ import com.example.myapplication.NoteBlock
 import com.example.myapplication.NoteContent
 
 /**
- * 全屏便签详情编辑器 - 优化版（工具栏移至顶部）
+ * 全屏便签详情编辑器 - 优化版
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,95 +99,114 @@ fun NoteDetailEditor(
                         // 顶部操作工具栏
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            tonalElevation = 2.dp,
-                            shadowElevation = 1.dp
+                            color = MaterialTheme.colorScheme.background // 使用与页面一致的背景色
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    .padding(horizontal = 4.dp, vertical = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceAround,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                IconButton(onClick = {
+                                ToolItem(Icons.Default.TextFields, "正文") {
                                     content = content.copy(blocks = content.blocks + NoteBlock.Text("", false))
-                                }) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.TextFields, contentDescription = "正文", tint = MaterialTheme.colorScheme.primary)
-                                        Text("正文", fontSize = 9.sp)
-                                    }
                                 }
-                                IconButton(onClick = {
+                                ToolItem(Icons.Default.Title, "标题") {
                                     content = content.copy(blocks = content.blocks + NoteBlock.Text("", true))
-                                }) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.Title, contentDescription = "标题", tint = MaterialTheme.colorScheme.primary)
-                                        Text("标题", fontSize = 9.sp)
-                                    }
                                 }
-                                IconButton(onClick = { imagePickerLauncher.launch("image/*") }) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = "图片", tint = MaterialTheme.colorScheme.primary)
-                                        Text("图片", fontSize = 9.sp)
-                                    }
+                                ToolItem(Icons.Default.AddPhotoAlternate, "图片") {
+                                    imagePickerLauncher.launch("image/*")
                                 }
-                                IconButton(onClick = { filePickerLauncher.launch("*/*") }) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.AttachFile, contentDescription = "文件", tint = MaterialTheme.colorScheme.primary)
-                                        Text("文件", fontSize = 9.sp)
-                                    }
+                                ToolItem(Icons.Default.AttachFile, "文件") {
+                                    filePickerLauncher.launch("*/*")
                                 }
-                                IconButton(onClick = {
+                                ToolItem(Icons.Default.CheckBox, "待办") {
                                     content = content.copy(blocks = content.blocks + NoteBlock.Todo("", false))
-                                }) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.CheckBox, contentDescription = "待办", tint = MaterialTheme.colorScheme.primary)
-                                        Text("待办", fontSize = 9.sp)
-                                    }
                                 }
                             }
                         }
                     }
                 }
             ) { innerPadding ->
-                LazyColumn(
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
-                    
                     if (content.blocks.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier.fillParentMaxSize(0.7f),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("点击上方图标开始创作", color = Color.Gray, style = MaterialTheme.typography.bodyLarge)
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.EditNote,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = Color.LightGray.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "点击上方图标开始创作",
+                                color = Color.Gray,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            item { Spacer(modifier = Modifier.height(16.dp)) }
+
+                            itemsIndexed(content.blocks) { index, block ->
+                                NoteBlockItem(
+                                    block = block,
+                                    onUpdate = { updatedBlock ->
+                                        val newList = content.blocks.toMutableList()
+                                        newList[index] = updatedBlock
+                                        content = content.copy(blocks = newList)
+                                    },
+                                    onDelete = {
+                                        val newList = content.blocks.toMutableList()
+                                        newList.removeAt(index)
+                                        content = content.copy(blocks = newList)
+                                    }
+                                )
                             }
+                            item { Spacer(modifier = Modifier.height(100.dp)) }
                         }
                     }
-
-                    itemsIndexed(content.blocks) { index, block ->
-                        NoteBlockItem(
-                            block = block,
-                            onUpdate = { updatedBlock ->
-                                val newList = content.blocks.toMutableList()
-                                newList[index] = updatedBlock
-                                content = content.copy(blocks = newList)
-                            },
-                            onDelete = {
-                                val newList = content.blocks.toMutableList()
-                                newList.removeAt(index)
-                                content = content.copy(blocks = newList)
-                            }
-                        )
-                    }
-                    item { Spacer(modifier = Modifier.height(100.dp)) }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ToolItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                icon, 
+                contentDescription = label, 
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                label, 
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            )
         }
     }
 }
