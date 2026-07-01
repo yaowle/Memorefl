@@ -85,6 +85,12 @@ val cardColorPalette = listOf(
     CardColorScheme(0xFF4A4E69,         0xFFDCD4F0),    // 灰紫 → 淡紫
     CardColorScheme(0xFF463F3A,         0xFFECDCC8),    // 暖炭灰 → 暖米白
     CardColorScheme(0xFF3D405B,         0xFFD4D0F0),    // 暗紫蓝 → 淡蓝紫
+
+    // ── 暖色系（暗模式偏暖）──
+    CardColorScheme(0xFF4A2C28,         0xFFE8D0C8),    // 深可可 → 暖粉白
+    CardColorScheme(0xFF583830,         0xFFF0D8C8),    // 暗陶土 → 蜜桃奶
+    CardColorScheme(0xFF4A4030,         0xFFF0E0C8),    // 暖栗棕 → 暖杏白
+    CardColorScheme(0xFF5C4A30,         0xFFF0E0C0),    // 暗金褐 → 金色奶
 )
 
 /**
