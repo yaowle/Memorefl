@@ -1,0 +1,139 @@
+<resources>
+    <string name="app_name">MemoRefl</string>
+
+    <!-- 已有字符串（保持原样） -->
+    <string name="no_note_content">暂无便签内容</string>
+    <string name="calendar_summary">日程摘要</string>
+    <string name="global_shared">全局共享</string>
+    <string name="status_ongoing">进行中</string>
+    <string name="status_next">下一项</string>
+    <string name="no_ongoing_events">暂无进行中事项</string>
+    <string name="no_more_events">今日已无后续安排</string>
+    <string name="view_full_calendar">查看完整日程表 (%1$d)</string>
+    <string name="calendar_list">日程清单</string>
+    <string name="no_calendar_events">暂无日程安排</string>
+
+    <!-- 导航 -->
+    <string name="back">返回</string>
+    <string name="home">首页</string>
+    <string name="edit">编辑</string>
+
+    <!-- 方案管理 -->
+    <string name="default_scheme_name">默认方案</string>
+    <string name="import_scheme_prefix">导入方案_%1$d</string>
+    <string name="new_scheme_prefix">新方案 %1$d</string>
+    <string name="import_scheme_title">导入方案 (JSON)</string>
+    <string name="paste_json_hint">请在此粘贴 JSON 内容</string>
+    <string name="import_success">导入成功</string>
+    <string name="import_failed">导入失败：格式错误</string>
+    <string name="rename_scheme_title">重命名方案</string>
+    <string name="confirm">确定</string>
+    <string name="settings">设置</string>
+    <string name="scheme_management">方案切换与管理</string>
+    <string name="current_scheme">当前：%1$s</string>
+    <string name="create_new">新建</string>
+    <string name="rename">重命名</string>
+    <string name="delete">删除</string>
+    <string name="data_import_export">数据导入导出</string>
+    <string name="copy_compact">复制（压缩）</string>
+    <string name="copy_pretty">复制（美化）</string>
+    <string name="copied_compact_json">已复制压缩版 JSON</string>
+    <string name="copied_pretty_json">已复制美化版 JSON</string>
+    <string name="import_json_data">导入 JSON 数据</string>
+    <string name="about_app">关于软件</string>
+    <string name="app_slogan">状态导向 · 知识树 · 极简</string>
+    <string name="version_text">版本：%1$s</string>
+    <string name="app_desc">一款基于树状结构的极简状态管理与知识查询工具。</string>
+    <string name="total_schemes">共 %1$d 个方案</string>
+
+    <!-- 树编辑器 -->
+    <string name="confirm_exit_title">确认退出？</string>
+    <string name="unsaved_changes">您有未保存的更改，退出将丢失这些更改。</string>
+    <string name="confirm_exit">确认退出</string>
+    <string name="continue_editing">继续编辑</string>
+    <string name="edit_global_calendar">编辑全局共享日历</string>
+    <string name="add_root_category">添加根分类</string>
+    <string name="new_category">新分类</string>
+    <string name="undo">撤销</string>
+    <string name="redo">重做</string>
+    <string name="global_calendar">全局日历</string>
+    <string name="save_changes">保存更改</string>
+    <string name="cancel">取消</string>
+    <string name="done">完成</string>
+    <string name="tree_editor_title">树状编辑器</string>
+
+    <!-- 节点编辑 -->
+    <string name="node_name">名称</string>
+    <string name="default_entry">默认进入</string>
+    <string name="set_function_page">设为功能页</string>
+    <string name="function_page_enabled">功能页已开启</string>
+    <string name="remove_limit">解除限制</string>
+    <string name="type_note">便签</string>
+    <string name="type_calendar">日历</string>
+    <string name="click_to_edit_note">点击编辑便签内容…</string>
+    <string name="click_to_edit_detail">点击进行详细编辑</string>
+    <string name="link_global_calendar">关联全局日历</string>
+    <string name="edit_private_schedule">编辑私有日程</string>
+    <string name="using_global_calendar">正在使用全局共享日历</string>
+    <string name="using_private_calendar">正在使用私有日程表</string>
+    <string name="private_events_count">包含 %1$d 条私有日程。</string>
+    <string name="sync_same_calendar">所有关联节点将同步显示同一份日程清单。</string>
+    <string name="edit_private_events">编辑私有日程</string>
+    <string name="weight_very_low">极低</string>
+    <string name="weight_low">低</string>
+    <string name="weight_medium">中</string>
+    <string name="weight_high">高</string>
+    <string name="weight_very_high">极高</string>
+    <string name="add_child">添加子项</string>
+    <string name="toggle_collapse">切换收起</string>
+    <string name="move_up">上移</string>
+    <string name="move_down">下移</string>
+    <string name="delete_node">删除</string>
+
+    <!-- 功能页 -->
+    <string name="click_to_edit_detail_page">点击进入详情页编辑</string>
+    <string name="date_format_pattern">MM月dd日 EEEE</string>
+    <string name="cannot_open_file">无法打开此文件</string>
+    <string name="cannot_open_file_error">无法打开此文件：%1$s</string>
+    <string name="unknown_file">未知文件</string>
+    <string name="open_file_chooser">打开文件</string>
+
+    <!-- 便签编辑器 -->
+    <string name="body_text">正文</string>
+    <string name="heading">标题</string>
+    <string name="image">图片</string>
+    <string name="file">文件</string>
+    <string name="todo">待办</string>
+    <string name="click_icons_to_create">点击上方图标开始创作</string>
+    <string name="input_heading">输入标题…</string>
+    <string name="input_body">输入正文…</string>
+    <string name="add_caption">添加图片说明…</string>
+    <string name="todo_placeholder">待办事项…</string>
+
+    <!-- 日历编辑器 -->
+    <string name="calendar_editor">日程编辑器</string>
+    <string name="time">时间</string>
+    <string name="event">事项</string>
+    <string name="add_event">增加事项</string>
+    <string name="new_event_time">09:00</string>
+    <string name="new_event_title">新事项</string>
+
+    <!-- 瓦片布局 -->
+    <string name="knowledge_end">已到达知识终点</string>
+    <string name="others">其他</string>
+    <string name="all_tasks_done">今日任务已全部完成 ✓</string>
+
+    <!-- 默认方案示例数据 -->
+    <string name="sample_work">工作</string>
+    <string name="sample_meeting">会议</string>
+    <string name="sample_doc">文档</string>
+    <string name="sample_life">生活</string>
+    <string name="sample_sport">运动</string>
+    <string name="sample_entertainment">娱乐</string>
+    <string name="language">语言</string>
+    <string name="language_chinese">中文</string>
+    <string name="language_english">English</string>
+    <string name="language_switch_hint">切换语言后需要重启应用</string>
+    <string name="card_color">卡片颜色</string>
+    <string name="default_color">默认</string>
+</resources>
