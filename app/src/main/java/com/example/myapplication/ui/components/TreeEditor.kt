@@ -44,7 +44,7 @@ fun TreeEditor(
 ) {
     var currentEditingTree by remember(editingTree) { mutableStateOf(editingTree) }
     var showExitConfirm by remember { mutableStateOf(false) }
-    var showGlobalCalendarEditor by remember { mutableStateOf(false) }
+    // var showGlobalCalendarEditor by remember { mutableStateOf(false) }  // 日历功能暂关闭
     val context = LocalContext.current
 
     // 本地撤销/重做栈（用于未保存前的实时编辑）
@@ -148,9 +148,7 @@ fun TreeEditor(
                             tint = if (localRedoStack.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
                         )
                     }
-                    IconButton(onClick = { showGlobalCalendarEditor = true }) {
-                        Icon(Icons.Default.CalendarMonth, stringResource(R.string.global_calendar), tint = MaterialTheme.colorScheme.primary)
-                    }
+                    // 全局日历入口已隐藏（功能暂关闭）
                     if (hasChanges) {
                         TextButton(
                             onClick = { onSave(currentEditingTree) }
@@ -166,17 +164,7 @@ fun TreeEditor(
             )
         }
     ) { padding ->
-        if (showGlobalCalendarEditor) {
-            CalendarEditorDialog(
-                title = stringResource(R.string.edit_global_calendar),
-                initialEvents = sharedCalendarEvents,
-                onSave = {
-                    onUpdateSharedCalendar(it)
-                    showGlobalCalendarEditor = false
-                },
-                onDismiss = { showGlobalCalendarEditor = false }
-            )
-        }
+        // 全局日历 Dialog 已隐藏（功能暂关闭）
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),

@@ -420,14 +420,7 @@ fun NodeEditItem(
                             { Icon(Icons.Default.Note, null, modifier = Modifier.size(14.dp)) }
                         } else null
                     )
-                    FilterChip(
-                        selected = node.nodeType == NodeType.CALENDAR,
-                        onClick = { onChanged(node.copy(nodeType = NodeType.CALENDAR)) },
-                        label = { Text(stringResource(R.string.type_calendar), fontSize = 11.sp) },
-                        leadingIcon = if (node.nodeType == NodeType.CALENDAR) {
-                            { Icon(Icons.Default.CalendarMonth, null, modifier = Modifier.size(14.dp)) }
-                        } else null
-                    )
+                    // 日历类型入口已隐藏（功能暂关闭）
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
