@@ -253,14 +253,10 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "knowledge_database"
                 )
-                // 仅在调试构建中允许破坏性迁移（方便开发迭代）
-                // 发布版本：若迁移失败则抛出异常，防止用户数据静默丢失
-                if (com.example.myapplication.BuildConfig.DEBUG) {
-                    instance.fallbackToDestructiveMigration()
-                }
-                val db = instance.build()
-                INSTANCE = db
-                db
+                .fallbackToDestructiveMigration()
+                .build()
+                INSTANCE = instance
+                instance
             }
         }
     }
