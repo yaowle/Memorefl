@@ -54,10 +54,18 @@ fun NodeEditItem(
     var showColorPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
+    // 同步外部变更（撤销/重做等）到本地编辑状态
+    LaunchedEffect(node.title) {
+        if (localTitle != node.title) localTitle = node.title
+    }
+    LaunchedEffect(node.content) {
+        if (localContent != node.content) localContent = node.content
+    }
+
     // 卡片可选颜色（工程冷峻风格），引用共享调色板
     val cardBackgroundColors = cardColorPalette.map { it.background }
 
-    // 防抖同步
+    // 防抖同步：用户编辑 → 提交到 ViewModel
     LaunchedEffect(localTitle, localContent) {
         if (localTitle != node.title || localContent != node.content) {
             delay(500)
@@ -301,7 +309,7 @@ fun NodeEditItem(
                 
                 if (isCompact) {
                     // 紧凑模式：权重: (输入框) 极低 — 水平排列
-                    var weightText by remember(node.weight) { mutableStateOf(node.weight.toInt().toString()) }
+                    var weightText by remember(node.id, node.weight.toInt()) { mutableStateOf(node.weight.toInt().toString()) }
                     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
                     Text(stringResource(R.string.weight_label), fontSize = 11.sp, color = Color.Gray, maxLines = 1)

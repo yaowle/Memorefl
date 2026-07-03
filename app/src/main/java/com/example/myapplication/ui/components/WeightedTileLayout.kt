@@ -97,7 +97,7 @@ fun WeightedTileLayout(
         val totalWeight = displayNodes.sumOf { it.weight.toDouble() }.toFloat()
         displayNodes.forEachIndexed { index, node ->
             val weight = node.weight / totalWeight
-            val interactionSource = remember { MutableInteractionSource() }
+            val interactionSource = remember(node.id) { MutableInteractionSource() }
             val isPressed by interactionSource.collectIsPressedAsState()
             val scale by animateFloatAsState(
                 targetValue = if (isPressed) 0.96f else 1f,
@@ -164,7 +164,8 @@ fun NodeTileContent(node: KnowledgeNode, weight: Float, sharedEvents: List<Calen
 
         if (node.nodeType == NodeType.CALENDAR) {
             val events = if (node.sharedCalendarEnabled) sharedEvents else remember(node.content) { node.toCalendarEvents() }
-            val currentTimeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+            val currentTimeStr = timeFormat.format(Date())
             val activeEvents = events.filter { !it.isDone }.sortedBy { it.time }
             val nextEvent = activeEvents.find { it.time >= currentTimeStr } ?: activeEvents.firstOrNull()
 

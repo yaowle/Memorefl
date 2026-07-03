@@ -160,7 +160,8 @@ fun SettingsPage(
                 if (allSchemes.size > 1) {
                     OutlinedButton(
                         onClick = { 
-                            onDeleteScheme(allSchemes.find { it.name == currentSchemeName }!!)
+                            val target = allSchemes.find { it.name == currentSchemeName }
+                            if (target != null) onDeleteScheme(target)
                             onClose()
                         },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)

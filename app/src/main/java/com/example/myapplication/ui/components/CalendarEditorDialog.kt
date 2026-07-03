@@ -42,13 +42,13 @@ fun CalendarEditorDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 LazyColumn(modifier = Modifier.weight(1f)) {
-                    items(events) { event ->
+                    items(events, key = { it.id }) { event ->
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            var time by remember { mutableStateOf(event.time) }
-                            var titleStr by remember { mutableStateOf(event.title) }
+                            var time by remember(event.id) { mutableStateOf(event.time) }
+                            var titleStr by remember(event.id) { mutableStateOf(event.title) }
 
                             OutlinedTextField(
                                 value = time,
