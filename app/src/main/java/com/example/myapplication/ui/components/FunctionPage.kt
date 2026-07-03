@@ -22,7 +22,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -33,7 +32,6 @@ import com.example.myapplication.NoteBlock
 import com.example.myapplication.NoteContent
 import com.example.myapplication.NodeType
 import com.example.myapplication.R
-import com.example.myapplication.getNotePreview
 import com.example.myapplication.toCalendarEvents
 import com.example.myapplication.toNoteContent
 import com.example.myapplication.toJsonString
