@@ -144,6 +144,7 @@ fun NoteContentViewer(
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            @Suppress("DEPRECATION")
                             Icon(Icons.Default.InsertDriveFile, null, tint = MaterialTheme.colorScheme.secondary)
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
@@ -158,62 +159,6 @@ fun NoteContentViewer(
     }
 }
 
-/**
- * 便签页预览组件
- */
-@Composable
-fun NotePagePreview(
-    node: KnowledgeNode,
-    onOpenEditor: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        ),
-        shape = RoundedCornerShape(16.dp),
-        onClick = onOpenEditor
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            val previewText = remember(node.content) { node.getNotePreview(maxChars = 200) }
-            val noNoteText = stringResource(R.string.no_note_content)
-            
-            Text(
-                text = previewText.ifEmpty { noNoteText },
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    lineHeight = 24.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                ),
-                maxLines = 8,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.click_to_edit_detail_page),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Icon(
-                    imageVector = Icons.Default.EditNote,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-    }
-}
 
 /**
  * 功能页内容渲染器
@@ -255,7 +200,6 @@ fun FunctionPageContent(
             }
             NodeType.CALENDAR -> {
                 CalendarPageView(
-                    node = node, 
                     events = if (node.sharedCalendarEnabled) sharedEvents else node.toCalendarEvents(),
                     onEventsChanged = { updatedEvents ->
                         if (node.sharedCalendarEnabled) {
@@ -277,7 +221,6 @@ fun FunctionPageContent(
  */
 @Composable
 fun CalendarPageView(
-    node: KnowledgeNode, 
     events: List<CalendarEvent>,
     onEventsChanged: (List<CalendarEvent>) -> Unit,
     isShared: Boolean

@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
+
 package com.example.myapplication
 
 import android.content.Context
@@ -346,7 +348,6 @@ fun KnowledgeNode.toEntities(schemeName: String, parentId: String? = null, order
  * 将扁平实体列表还原为树形结构
  */
 fun List<NodeEntity>.toTree(): KnowledgeNode? {
-    val nodeMap = this.associateBy { it.id }
     val childrenMap = this.groupBy { it.parentId }
     
     fun buildNode(entity: NodeEntity): KnowledgeNode {

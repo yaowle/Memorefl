@@ -189,7 +189,7 @@ fun NodeEditItem(
                             .size(12.dp)
                             .align(Alignment.Center)
                             .background(
-                                color = if (node.color != null) Color(node.color!!) else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                color = node.color?.let { Color(it) } ?: MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                                 shape = RoundedCornerShape(3.dp)
                             )
                             .then(
@@ -310,7 +310,7 @@ fun NodeEditItem(
                 if (isCompact) {
                     // 紧凑模式：权重: (输入框) 极低 — 水平排列
                     var weightText by remember(node.id, node.weight.toInt()) { mutableStateOf(node.weight.toInt().toString()) }
-                    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+                    val focusManager = LocalFocusManager.current
 
                     Text(stringResource(R.string.weight_label), fontSize = 11.sp, color = Color.Gray, maxLines = 1)
                     Spacer(modifier = Modifier.width(4.dp))
@@ -431,6 +431,7 @@ fun NodeEditItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    @Suppress("DEPRECATION")
                     FilterChip(
                         selected = node.nodeType == NodeType.NOTE,
                         onClick = { onChanged(node.copy(nodeType = NodeType.NOTE)) },
