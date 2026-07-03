@@ -67,7 +67,7 @@
     <string name="default_entry">Default Entry</string>
     <string name="set_function_page">Set as Function Page</string>
     <string name="function_page_enabled">Function Page Enabled</string>
-    <string name="remove_limit">Remove Limit</string>
+    <string name="remove_limit">Remove Quantity Limit</string>
     <string name="type_note">Note</string>
     <string name="type_calendar">Calendar</string>
     <string name="click_to_edit_note">Tap to edit note…</string>
@@ -126,16 +126,22 @@
     <string name="date_format_pattern">MMM dd, EEEE</string>
 
     <!-- Default scheme sample data -->
-    <string name="sample_work">Work</string>
-    <string name="sample_meeting">Meeting</string>
-    <string name="sample_doc">Document</string>
-    <string name="sample_life">Life</string>
-    <string name="sample_sport">Sport</string>
-    <string name="sample_entertainment">Entertainment</string>
+    <string name="sample_daily">Daily Affairs</string>
+    <string name="sample_body_state">Body State</string>
+    <string name="sample_body_time">Time</string>
+    <string name="sample_body_env">Environment</string>
+    <string name="sample_body_sense">Senses</string>
+    <string name="sample_idle">Nothing to Do</string>
+    <string name="sample_idle_alone">Alone</string>
+    <string name="sample_idle_group">Group</string>
+    <string name="sample_notes">Notes</string>
     <string name="language">Language</string>
     <string name="language_chinese">中文</string>
     <string name="language_english">English</string>
     <string name="language_switch_hint">App restart required after switching language</string>
     <string name="card_color">Card Color</string>
     <string name="default_color">Default</string>
+    <string name="star_default">Default</string>
+    <string name="weight_label">Weight: </string>
+    <string name="weight_short">Wt</string>
 </resources>

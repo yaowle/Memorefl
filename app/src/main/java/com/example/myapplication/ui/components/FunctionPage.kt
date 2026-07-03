@@ -136,7 +136,7 @@ fun NoteContentViewer(
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                         }
-                                        context.startActivity(Intent.createChooser(intent, "打开文件"))
+                                        context.startActivity(Intent.createChooser(intent, context.getString(R.string.open_file_chooser)))
                                     } catch (e: Exception) {
                                         android.widget.Toast.makeText(context, context.getString(R.string.cannot_open_file), android.widget.Toast.LENGTH_SHORT).show()
                                     }

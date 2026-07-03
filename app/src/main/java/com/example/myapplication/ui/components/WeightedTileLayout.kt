@@ -1,7 +1,11 @@
 package com.example.myapplication.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -12,12 +16,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import com.example.myapplication.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -91,13 +97,27 @@ fun WeightedTileLayout(
         val totalWeight = displayNodes.sumOf { it.weight.toDouble() }.toFloat()
         displayNodes.forEachIndexed { index, node ->
             val weight = node.weight / totalWeight
+            val interactionSource = remember { MutableInteractionSource() }
+            val isPressed by interactionSource.collectIsPressedAsState()
+            val scale by animateFloatAsState(
+                targetValue = if (isPressed) 0.96f else 1f,
+                animationSpec = tween(durationMillis = 100),
+                label = "tileScale"
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(weight)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
                     .clip(RoundedCornerShape(40.dp))
                     .background(node.color?.let { Color(it) } ?: colors[index % colors.size])
-                    .clickable { onNodeClick(node) },
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null
+                    ) { onNodeClick(node) },
                 contentAlignment = Alignment.Center
             ) {
                 NodeTileContent(node, weight, sharedEvents)

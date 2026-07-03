@@ -1,21 +1,40 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ── MemoRefl ProGuard Rules ──
+# Keep line numbers for debugging stack traces
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ── Room ──
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-keep @androidx.room.Dao interface *
+-dontwarn androidx.room.paging.**
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# ── Kotlin Serialization ──
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.AnnotationsKt
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+-keepclassmembers class kotlinx.serialization.json.** {
+    *** Companion;
+}
+-keepclasseswithmembers class kotlinx.serialization.json.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# Keep our serializable data models
+-keep,includedescriptorclasses class com.example.myapplication.KnowledgeNode { *; }
+-keep,includedescriptorclasses class com.example.myapplication.NoteBlock { *; }
+-keep,includedescriptorclasses class com.example.myapplication.NoteBlock$** { *; }
+-keep,includedescriptorclasses class com.example.myapplication.NoteContent { *; }
+-keep,includedescriptorclasses class com.example.myapplication.CalendarEvent { *; }
+-keep,includedescriptorclasses class com.example.myapplication.NodeType { *; }
+
+# Keep Compose safe
+-keep class ** { @kotlinx.serialization.Serializable <fields>; }
+
+# ── Coil ──
+-dontwarn coil.**
+-keep class coil.** { *; }
+
+# ── General ──
+-keepattributes Signature
+-keepattributes Exceptions

@@ -108,7 +108,7 @@ fun getCardTextColor(backgroundColor: Long?, defaultTextColor: androidx.compose.
  * ==================================================================================
  * 🔴 数据库架构变更指南 (给 AI 和开发者的特别提醒):
  * 1. 如果你修改了下方任何 [Entity] 类的字段（增加、删除、重命名）：
- *    - 必须前往 [AppDatabase] 类，将 version 增加 1 (例如从 4 改为 5)。
+ *    - 必须前往 [AppDatabase] 类，将 version 增加 1 (例如从 5 改为 6)。
  *    - 在 autoMigrations 列表中添加一个新的 AutoMigration 项。
  * 2. 所有的 KnowledgeNode 结构都会被序列化为 JSON 存储在 KnowledgeScheme 中作为备份。
  * ==================================================================================
@@ -151,7 +151,8 @@ data class NodeEntity(
     val isDefault: Boolean,
     val limitDisabled: Boolean,
     val sharedCalendarEnabled: Boolean,
-    val sortOrder: Int
+    val sortOrder: Int,
+    val color: Long? = null  // 自定义卡片颜色，v5 新增
 )
 
 /**
@@ -230,10 +231,10 @@ interface KnowledgeDao {
  */
 @Database(
     entities = [KnowledgeScheme::class, NodeEntity::class], 
-    version = 4, 
-    // 自动迁移配置：当你把 version 改成 5 时，在此处添加 AutoMigration(from = 4, to = 5)
+    version = 5, 
+    // 自动迁移配置：当你把 version 改成 6 时，在此处添加 AutoMigration(from = 5, to = 6)
     autoMigrations = [
-        // AutoMigration (from = 4, to = 5) 
+        AutoMigration(from = 4, to = 5)
     ],
     exportSchema = true
 )
@@ -250,12 +251,14 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "knowledge_database"
                 )
-                // 如果自动迁移失败，允许破坏性迁移作为最后的保底（数据会丢失，但程序不崩溃）
-                // 建议在开发阶段开启，发布上线前关闭
-                .fallbackToDestructiveMigration()
-                .build()
-                INSTANCE = instance
-                instance
+                // 仅在调试构建中允许破坏性迁移（方便开发迭代）
+                // 发布版本：若迁移失败则抛出异常，防止用户数据静默丢失
+                if (com.example.myapplication.BuildConfig.DEBUG) {
+                    instance.fallbackToDestructiveMigration()
+                }
+                val db = instance.build()
+                INSTANCE = db
+                db
             }
         }
     }
@@ -329,7 +332,8 @@ fun KnowledgeNode.toEntities(schemeName: String, parentId: String? = null, order
         isDefault = isDefault,
         limitDisabled = limitDisabled,
         sharedCalendarEnabled = sharedCalendarEnabled,
-        sortOrder = order
+        sortOrder = order,
+        color = color
     )
     val result = mutableListOf(current)
     children.forEachIndexed { index, child ->
@@ -355,6 +359,7 @@ fun List<NodeEntity>.toTree(): KnowledgeNode? {
             isDefault = entity.isDefault,
             limitDisabled = entity.limitDisabled,
             sharedCalendarEnabled = entity.sharedCalendarEnabled,
+            color = entity.color,
             children = childrenMap[entity.id]?.sortedBy { it.sortOrder }?.map { buildNode(it) } ?: emptyList()
         )
     }

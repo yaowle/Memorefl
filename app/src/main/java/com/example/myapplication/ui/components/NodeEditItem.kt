@@ -258,7 +258,7 @@ fun NodeEditItem(
                 }
                 
                 if (node.isDefault) {
-                    Icon(Icons.Default.Star, "默认", tint = Color(0xFFFBC02D), modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Star, stringResource(R.string.star_default), tint = Color(0xFFFBC02D), modifier = Modifier.size(16.dp))
                 }
             }
 
@@ -285,88 +285,99 @@ fun NodeEditItem(
                 }
             }
 
+            // 权重区域 — 独立一行，保证滑块在英文下也有足够空间
+            val isCompact = level >= 4
             Row(
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                val isCompact = level >= 4
-
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    if (!isCompact) {
-                        Text("权重: ", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.width(32.dp))
-                    }
-                    
-                    if (isCompact) {
-                        // 紧凑模式：输入框
-                        var weightText by remember(node.weight) { mutableStateOf(node.weight.toInt().toString()) }
-                        val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-                        
-                        OutlinedTextField(
-                            value = weightText,
-                            onValueChange = { input: String ->
-                                if (input.isEmpty()) {
-                                    weightText = ""
-                                    return@OutlinedTextField
-                                }
-                                val filtered = input.filter { it.isDigit() }
-                                if (filtered.isEmpty()) return@OutlinedTextField
-                                val num = filtered.toInt()
-                                val correctedNum = when {
-                                    num < 1 -> 1
-                                    num > 5 -> 5
-                                    else -> num
-                                }
-                                weightText = correctedNum.toString()
-                                onChanged(node.copy(weight = correctedNum.toFloat()))
-                            },
-                            modifier = Modifier
-                                .width(64.dp)
-                                .height(50.dp)
-                                .onFocusChanged { focusState ->
-                                    if (focusState.isFocused) weightText = "" 
-                                    else if (weightText.isEmpty()) weightText = node.weight.toInt().toString()
-                                },
-                            textStyle = androidx.compose.ui.text.TextStyle(
-                                fontSize = 14.sp, 
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            ),
-                            label = { 
-                                val weightLabel = when(node.weight.toInt()) {
-                                    1 -> stringResource(R.string.weight_very_low)
-                                    2 -> stringResource(R.string.weight_low)
-                                    3 -> stringResource(R.string.weight_medium)
-                                    4 -> stringResource(R.string.weight_high)
-                                    5 -> stringResource(R.string.weight_very_high)
-                                    else -> "权"
-                                }
-                                Text(weightLabel, fontSize = 9.sp) 
-                            },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Number,
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onDone = { focusManager.clearFocus() }
-                            )
-                        )
-                    } else {
-                        // 普通模式：滑动条
-                        Slider(
-                            value = node.weight,
-                            onValueChange = { onChanged(node.copy(weight = it)) },
-                            valueRange = 1f..5f,
-                            steps = 3,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(node.weight.toInt().toString(), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp))
-                    }
+                if (!isCompact) {
+                    Text(stringResource(R.string.weight_label), fontSize = 11.sp, color = Color.Gray, maxLines = 1)
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
+                
+                if (isCompact) {
+                    // 紧凑模式：权重: (输入框) 极低 — 水平排列
+                    var weightText by remember(node.weight) { mutableStateOf(node.weight.toInt().toString()) }
+                    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
-                Spacer(modifier = Modifier.width(if (isCompact) 8.dp else 0.dp))
+                    Text(stringResource(R.string.weight_label), fontSize = 11.sp, color = Color.Gray, maxLines = 1)
+                    Spacer(modifier = Modifier.width(4.dp))
 
+                    OutlinedTextField(
+                        value = weightText,
+                        onValueChange = { input: String ->
+                            if (input.isEmpty()) {
+                                weightText = ""
+                                return@OutlinedTextField
+                            }
+                            val filtered = input.filter { it.isDigit() }
+                            if (filtered.isEmpty()) return@OutlinedTextField
+                            val num = filtered.toInt()
+                            val correctedNum = when {
+                                num < 1 -> 1
+                                num > 5 -> 5
+                                else -> num
+                            }
+                            weightText = correctedNum.toString()
+                            onChanged(node.copy(weight = correctedNum.toFloat()))
+                        },
+                        modifier = Modifier
+                            .width(44.dp)
+                            .height(36.dp)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) weightText = ""
+                                else if (weightText.isEmpty()) weightText = node.weight.toInt().toString()
+                            },
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        ),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { focusManager.clearFocus() }
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+                    val weightLabel = when (node.weight.toInt()) {
+                        1 -> stringResource(R.string.weight_very_low)
+                        2 -> stringResource(R.string.weight_low)
+                        3 -> stringResource(R.string.weight_medium)
+                        4 -> stringResource(R.string.weight_high)
+                        5 -> stringResource(R.string.weight_very_high)
+                        else -> stringResource(R.string.weight_short)
+                    }
+                    Text(weightLabel, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                } else {
+                    // 普通模式：滑动条
+                    Slider(
+                        value = node.weight,
+                        onValueChange = { onChanged(node.copy(weight = it)) },
+                        valueRange = 1f..5f,
+                        steps = 3,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(node.weight.toInt().toString(), fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 4.dp))
+                }
+            }
+
+            // 功能页开关 + 解除限制
+            Row(
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (!isCompact) {
                         Text(
@@ -530,7 +541,7 @@ fun NodeEditItem(
 
                         if (showCalendarEditor) {
                             CalendarEditorDialog(
-                                title = "编辑私有日程",
+                                title = stringResource(R.string.edit_private_schedule),
                                 initialEvents = events,
                                 onSave = { updatedEvents ->
                                     onChanged(node.copy(content = updatedEvents.toJsonString()))

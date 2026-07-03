@@ -130,14 +130,17 @@ class KnowledgeViewModel(application: Application) : AndroidViewModel(applicatio
             id = "root",
             title = defaultName,
             children = listOf(
-                KnowledgeNode("1", appContext.getString(R.string.sample_work), weight = 3f, children = listOf(
-                    KnowledgeNode("1-1", appContext.getString(R.string.sample_meeting)),
-                    KnowledgeNode("1-2", appContext.getString(R.string.sample_doc))
+                KnowledgeNode("1", appContext.getString(R.string.sample_daily), weight = 4f),
+                KnowledgeNode("2", appContext.getString(R.string.sample_body_state), weight = 3f, children = listOf(
+                    KnowledgeNode("2-1", appContext.getString(R.string.sample_body_time)),
+                    KnowledgeNode("2-2", appContext.getString(R.string.sample_body_env)),
+                    KnowledgeNode("2-3", appContext.getString(R.string.sample_body_sense))
                 )),
-                KnowledgeNode("2", appContext.getString(R.string.sample_life), weight = 2f, children = listOf(
-                    KnowledgeNode("2-1", appContext.getString(R.string.sample_sport)),
-                    KnowledgeNode("2-2", appContext.getString(R.string.sample_entertainment))
-                ))
+                KnowledgeNode("3", appContext.getString(R.string.sample_idle), weight = 2f, children = listOf(
+                    KnowledgeNode("3-1", appContext.getString(R.string.sample_idle_alone), nodeType = NodeType.NOTE),
+                    KnowledgeNode("3-2", appContext.getString(R.string.sample_idle_group), nodeType = NodeType.NOTE)
+                )),
+                KnowledgeNode("4", appContext.getString(R.string.sample_notes), weight = 3f)
             )
         )
         repository.createScheme(defaultName, defaultRoot)

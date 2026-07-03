@@ -67,7 +67,7 @@
     <string name="default_entry">默认进入</string>
     <string name="set_function_page">设为功能页</string>
     <string name="function_page_enabled">功能页已开启</string>
-    <string name="remove_limit">解除限制</string>
+    <string name="remove_limit">解除数量限制</string>
     <string name="type_note">便签</string>
     <string name="type_calendar">日历</string>
     <string name="click_to_edit_note">点击编辑便签内容…</string>
@@ -124,16 +124,22 @@
     <string name="all_tasks_done">今日任务已全部完成 ✓</string>
 
     <!-- 默认方案示例数据 -->
-    <string name="sample_work">工作</string>
-    <string name="sample_meeting">会议</string>
-    <string name="sample_doc">文档</string>
-    <string name="sample_life">生活</string>
-    <string name="sample_sport">运动</string>
-    <string name="sample_entertainment">娱乐</string>
+    <string name="sample_daily">每日事物</string>
+    <string name="sample_body_state">身体状态</string>
+    <string name="sample_body_time">时间</string>
+    <string name="sample_body_env">环境</string>
+    <string name="sample_body_sense">感官</string>
+    <string name="sample_idle">没有事做</string>
+    <string name="sample_idle_alone">一个人</string>
+    <string name="sample_idle_group">群体</string>
+    <string name="sample_notes">注意事项</string>
     <string name="language">语言</string>
     <string name="language_chinese">中文</string>
     <string name="language_english">English</string>
     <string name="language_switch_hint">切换语言后需要重启应用</string>
     <string name="card_color">卡片颜色</string>
     <string name="default_color">默认</string>
+    <string name="star_default">默认</string>
+    <string name="weight_label">权重: </string>
+    <string name="weight_short">权</string>
 </resources>
